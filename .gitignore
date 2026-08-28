@@ -1,0 +1,31 @@
+# Switch Homebrew / devkitPro Build Artifacts
+build/
+*.nro
+*.elf
+*.nacp
+*.o
+*.d
+*.a
+
+# Python Caches & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# IDE / Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
