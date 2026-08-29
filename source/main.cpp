@@ -56,10 +56,8 @@ int consoleScrollOffset = 0;
 int romScrollOffset = 0;
 int dirScrollOffset = 0;
 
-// Download/Extract Smooth Progress Globals
+// Download/Extract Progress Globals
 std::string currentStatusText = "";
-static float targetProgressPercent = 0.0f;
-static float displayedProgressPercent = 0.0f;
 
 TTF_Font* font24 = nullptr;
 TTF_Font* font18 = nullptr;
@@ -215,9 +213,21 @@ void parseManifestJSON(const std::string& json) {
 void fetchManifest(bool forceDownload = false) {
     std::string buffer;
 
-    // Check for encrypted local cache first for instant boot
+    // Check for encrypted local cache first for fake boot animation
     if (!forceDownload && loadManifestCache(buffer) && !buffer.empty()) {
-        currentStatusText = "Loading Encrypted Cache...";
+        currentStatusText = "Loading Database...";
+        
+        // Exact 5 second fake loading progress bar
+        Uint64 startTicks = SDL_GetTicks64();
+        while (appletMainLoop()) {
+            Uint64 elapsed = SDL_GetTicks64() - startTicks;
+            if (elapsed >= 5000) break;
+            
+            float percent = ((float)elapsed / 5000.0f) * 100.0f;
+            renderProgressScreen(currentStatusText, percent);
+            SDL_Delay(16); // ~60fps
+        }
+        
         renderProgressScreen(currentStatusText, 100.0f);
         parseManifestJSON(buffer);
         SDL_Delay(100); 
@@ -228,8 +238,6 @@ void fetchManifest(bool forceDownload = false) {
     CURL* curl = curl_easy_init();
     
     currentStatusText = forceDownload ? "Updating ROM Database..." : "Fetching ROM Database...";
-    targetProgressPercent = 0.0f;
-    displayedProgressPercent = 0.0f;
 
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -404,24 +412,19 @@ void renderProgressScreen(const std::string& statusText, float percent) {
     SDL_RenderPresent(globalRenderer);
 }
 
-// Smooth Progress LERP Callback
+// Download Network Progress Callback (Direct Accuracy - No Lag LERP)
 int downloadProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
     if (dltotal > 0) {
-        targetProgressPercent = ((float)dlnow / (float)dltotal) * 100.0f;
-    }
+        float percent = ((float)dlnow / (float)dltotal) * 100.0f;
+        
+        static Uint64 lastTicks = 0;
+        Uint64 currentTicks = SDL_GetTicks64();
 
-    static Uint64 lastTicks = 0;
-    Uint64 currentTicks = SDL_GetTicks64();
-
-    if (currentTicks - lastTicks >= 16) {
-        displayedProgressPercent += (targetProgressPercent - displayedProgressPercent) * 0.20f;
-
-        if (std::abs(targetProgressPercent - displayedProgressPercent) < 0.5f) {
-            displayedProgressPercent = targetProgressPercent;
+        // 60FPS update limits to avoid freezing the renderer thread
+        if (currentTicks - lastTicks >= 16 || percent >= 100.0f) {
+            renderProgressScreen(currentStatusText, percent);
+            lastTicks = currentTicks;
         }
-
-        renderProgressScreen(currentStatusText, displayedProgressPercent);
-        lastTicks = currentTicks;
     }
     return 0;
 }
@@ -467,12 +470,13 @@ bool extractZipFile(const std::string& zipPath, const std::string& destDir) {
         }
         extractedFiles++;
 
+        // Smooth exact extraction progress calculation
         static Uint64 lastExtTicks = 0;
         Uint64 curExtTicks = SDL_GetTicks64();
-        if (curExtTicks - lastExtTicks >= 16) {
-            targetProgressPercent = ((float)extractedFiles / (float)totalFiles) * 100.0f;
-            displayedProgressPercent += (targetProgressPercent - displayedProgressPercent) * 0.20f;
-            renderProgressScreen("Extracting archive...", displayedProgressPercent);
+        float percent = ((float)extractedFiles / (float)totalFiles) * 100.0f;
+        
+        if (curExtTicks - lastExtTicks >= 16 || extractedFiles == totalFiles) {
+            renderProgressScreen(currentStatusText, percent);
             lastExtTicks = curExtTicks;
         }
 
@@ -480,7 +484,7 @@ bool extractZipFile(const std::string& zipPath, const std::string& destDir) {
     }
 
     unzClose(zip);
-    renderProgressScreen("Extracting archive...", 100.0f);
+    renderProgressScreen(currentStatusText, 100.0f);
     SDL_Delay(150);
 
     return true;
@@ -503,8 +507,6 @@ void executeDownloads() {
         targetZip += item.name;
 
         currentStatusText = "Downloading [" + std::to_string(i + 1) + "/" + std::to_string(targets.size()) + "]: " + item.name;
-        targetProgressPercent = 0.0f;
-        displayedProgressPercent = 0.0f;
 
         CURL* curl = curl_easy_init();
         if (curl) {
@@ -536,8 +538,6 @@ void executeDownloads() {
 
                 if (res == CURLE_OK && isZip && !isArcade) {
                     currentStatusText = "Extracting: " + item.name;
-                    targetProgressPercent = 0.0f;
-                    displayedProgressPercent = 0.0f;
                     extractZipFile(targetZip, currentSdPath);
                     remove(targetZip.c_str());
                 }
@@ -667,7 +667,23 @@ int main(int argc, char* argv[]) {
                 }
             }
         } else if (currentState == STATE_ROMS) {
-            if (kDown & HidNpadButton_B) currentState = STATE_MAIN;
+            if (kDown & HidNpadButton_B) {
+                // Wipe multi-selections when backing out
+                for (auto& item : consoleRomMap[currentConsoleName]) {
+                    item.isSelected = false;
+                }
+                for (auto& item : romList) {
+                    item.isSelected = false;
+                }
+                currentState = STATE_MAIN;
+            }
+
+            // Quick reset search by pressing Y
+            if (kDown & HidNpadButton_Y) {
+                romList = consoleRomMap[currentConsoleName];
+                selectedRomIdx = 0;
+                romScrollOffset = 0;
+            }
 
             if (!romList.empty()) {
                 if (kDown & (HidNpadButton_Up | HidNpadButton_StickLUp)) selectedRomIdx = std::max(0, selectedRomIdx - 1);
@@ -795,7 +811,6 @@ int main(int argc, char* argv[]) {
         renderText("SFX: " + std::string(sfxEnabled ? "[ON]" : "[OFF]"), 1130, 20, sfxEnabled ? retroGreen : retroYellow, font18);
 
         if (currentState == STATE_MAIN) {
-            // Updated UI instructions to reflect the Y button refresh command
             renderText("[A] Open   [Y] Update List   [-] Toggle SFX   [L/R] Page   [+] Exit", 40, 675, retroCyan, font18);
 
             int cols = 4;
@@ -849,7 +864,8 @@ int main(int argc, char* argv[]) {
             }
         } else if (currentState == STATE_ROMS) {
             renderText("Console: " + currentConsoleName, 400, 16, retroYellow, font24);
-            renderText("[A] Confirm / DL   [X] Select   [+] Search   [Left/Right] Page   [B] Back", 40, 675, retroCyan, font18);
+            // Updated UI hints mapping
+            renderText("[A] Confirm/DL  [X] Select  [Y] Reset Search  [+] Search  [L/R] Page  [B] Back", 40, 675, retroCyan, font18);
 
             int maxVisible = 10;
             if (selectedRomIdx < romScrollOffset) romScrollOffset = selectedRomIdx;
