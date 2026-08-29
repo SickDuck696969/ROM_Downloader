@@ -300,9 +300,29 @@ void fetchCoverImage(const std::string& folderName) {
 void fetchManifest(bool forceDownload = false) {
     std::string buffer;
 
-    // Fast-path local load without fake 5-second sleep delays
+    // Fast-path local load (Triggers when booting with cached assets)
     if (!forceDownload && loadManifestCache(buffer) && !buffer.empty()) {
         parseManifestJSON(buffer);
+        
+        // --- Fake 3-Second Loading Bar ---
+        Uint64 startTicks = SDL_GetTicks64();
+        Uint64 currentTicks = startTicks;
+        
+        while (currentTicks - startTicks < 3000) { // 3000 ms = 3 seconds
+            // Calculate percentage (0.0 to 100.0) based on time elapsed
+            float percent = ((float)(currentTicks - startTicks) / 3000.0f) * 100.0f;
+            
+            renderProgressScreen("Loading Database...", percent);
+            
+            SDL_Delay(16); // ~60 FPS limit so we don't cook the Switch CPU
+            currentTicks = SDL_GetTicks64();
+        }
+        
+        // Cap it off at 100% just in case the math rounded weirdly
+        renderProgressScreen("System Ready!", 100.0f);
+        SDL_Delay(200); // Brief pause so the user actually sees it finish
+        // ---------------------------------
+        
         return;
     }
 
