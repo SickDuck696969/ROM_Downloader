@@ -64,6 +64,7 @@ TTF_Font* font18 = nullptr;
 TTF_Font* fontLabel = nullptr;
 SDL_Renderer* globalRenderer = nullptr;
 SDL_Texture* bgTexture = nullptr;
+SDL_Texture* scanlineTexture = nullptr; // Pre-baked scanlines optimization
 
 Mix_Chunk* sfxNav = nullptr;
 Mix_Chunk* sfxClick = nullptr;
@@ -75,6 +76,30 @@ std::map<std::string, SDL_Texture*> coverCache;
 // --- Forward Declarations ---
 void renderProgressScreen(const std::string& statusText, float percent);
 int downloadProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow);
+
+// --- Scanline Overlay Pre-renderer ---
+void initScanlineTexture() {
+    SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, 1280, 720, 32, SDL_PIXELFORMAT_RGBA8888);
+    if (surf) {
+        SDL_FillRect(surf, NULL, SDL_MapRGBA(surf->format, 0, 0, 0, 0));
+        Uint32 lineCol = SDL_MapRGBA(surf->format, 0, 0, 0, 60);
+        for (int y = 0; y < 720; y += 3) {
+            SDL_Rect line = { 0, y, 1280, 1 };
+            SDL_FillRect(surf, &line, lineCol);
+        }
+        scanlineTexture = SDL_CreateTextureFromSurface(globalRenderer, surf);
+        SDL_FreeSurface(surf);
+        if (scanlineTexture) {
+            SDL_SetTextureBlendMode(scanlineTexture, SDL_BLENDMODE_BLEND);
+        }
+    }
+}
+
+void renderScanlines() {
+    if (scanlineTexture) {
+        SDL_RenderCopy(globalRenderer, scanlineTexture, NULL, NULL);
+    }
+}
 
 // --- Audio & Settings Helpers ---
 void loadSettings() {
@@ -125,7 +150,6 @@ size_t MemoryWriteCallback(void* contents, size_t size, size_t nmemb, void* user
 
 // --- Manifest Caching & Encryption ---
 void cryptManifest(std::string& data) {
-    // Simple XOR Cipher to encrypt/decrypt the manifest locally
     const std::string key = "S1ckDuck69!SwitchApp"; 
     for (size_t i = 0; i < data.size(); ++i) {
         data[i] ^= key[i % key.length()];
@@ -134,7 +158,7 @@ void cryptManifest(std::string& data) {
 
 void saveManifestCache(std::string data) {
     mkdir("sdmc:/switch/ROM_Downloader", 0777);
-    cryptManifest(data); // Encrypt before writing
+    cryptManifest(data);
     std::ofstream out("sdmc:/switch/ROM_Downloader/manifest.enc", std::ios::binary);
     if (out.is_open()) {
         out.write(data.c_str(), data.size());
@@ -146,16 +170,14 @@ bool loadManifestCache(std::string& outData) {
     std::ifstream in("sdmc:/switch/ROM_Downloader/manifest.enc", std::ios::binary);
     if (!in.is_open()) return false;
     
-    // Read raw encrypted data
     outData.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     in.close();
     
-    // Decrypt back to valid JSON
     cryptManifest(outData);
     return true;
 }
 
-// Custom Manifest JSON Parser (Bypasses GitHub REST API)
+// Custom Manifest JSON Parser
 void parseManifestJSON(const std::string& json) {
     consoleList.clear();
     consoleRomMap.clear();
@@ -209,28 +231,78 @@ void parseManifestJSON(const std::string& json) {
     }
 }
 
-// Fetch Manifest via Raw GitHub CDN (Unlimited Requests)
+// --- Helper to fix spaces in URLs ---
+std::string urlEncode(const std::string& value) {
+    std::string result;
+    for (char c : value) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            result += c;
+        } else if (c == ' ') {
+            result += "%20"; // Converts spaces for the web
+        } else {
+            char buf[4];
+            snprintf(buf, sizeof(buf), "%%%02X", (unsigned char)c);
+            result += buf;
+        }
+    }
+    return result;
+}
+
+// --- Fixed Cover Downloader ---
+void fetchCoverImage(const std::string& folderName) {
+    mkdir("sdmc:/switch/ROM_Downloader", 0777);
+    mkdir("sdmc:/switch/ROM_Downloader/covers", 0777);
+    std::string localPath = "sdmc:/switch/ROM_Downloader/covers/" + folderName + ".png";
+
+    struct stat st;
+    // FIX 3: Ignore files smaller than 100 bytes (automatically overwrites those 11b text files)
+    if (stat(localPath.c_str(), &st) == 0 && st.st_size > 100) return;
+
+    // FIX 1: URL Encode the folder name so spaces don't break the link
+    std::string coverUrl = "https://raw.githubusercontent.com/SickDuck696969/ROM-Collection/master/" + urlEncode(folderName) + "/cover.png";
+    
+    CURL* curl = curl_easy_init();
+    if (!curl) return;
+
+    MemoryBuffer mem = { nullptr, 0 };
+    curl_easy_setopt(curl, CURLOPT_URL, coverUrl.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, MemoryWriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &mem);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "ROM-Downloader-Switch");
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    
+    // FIX 2: Force cURL to fail if GitHub returns a 404 Not Found
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L); 
+    
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 8L);
+
+    CURLcode res = curl_easy_perform(curl);
+    
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    
+    curl_easy_cleanup(curl);
+
+    // Only save the file if we got a real 200 OK and it's actually an image (larger than a tiny text string)
+    if (res == CURLE_OK && http_code == 200 && mem.size > 100) {
+        FILE* fp = fopen(localPath.c_str(), "wb");
+        if (fp) {
+            fwrite(mem.data, 1, mem.size, fp);
+            fclose(fp);
+        }
+    }
+    
+    if (mem.data) free(mem.data);
+}
+
+// Fetch Manifest via Raw GitHub CDN
 void fetchManifest(bool forceDownload = false) {
     std::string buffer;
 
-    // Check for encrypted local cache first for fake boot animation
+    // Fast-path local load without fake 5-second sleep delays
     if (!forceDownload && loadManifestCache(buffer) && !buffer.empty()) {
-        currentStatusText = "Loading Database...";
-        
-        // Exact 5 second fake loading progress bar
-        Uint64 startTicks = SDL_GetTicks64();
-        while (appletMainLoop()) {
-            Uint64 elapsed = SDL_GetTicks64() - startTicks;
-            if (elapsed >= 5000) break;
-            
-            float percent = ((float)elapsed / 5000.0f) * 100.0f;
-            renderProgressScreen(currentStatusText, percent);
-            SDL_Delay(16); // ~60fps
-        }
-        
-        renderProgressScreen(currentStatusText, 100.0f);
         parseManifestJSON(buffer);
-        SDL_Delay(100); 
         return;
     }
 
@@ -246,6 +318,7 @@ void fetchManifest(bool forceDownload = false) {
         curl_easy_setopt(curl, CURLOPT_USERAGENT, "ROM-Downloader-Switch");
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 64 * 1024L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 8L);
         
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, downloadProgressCallback);
@@ -254,11 +327,18 @@ void fetchManifest(bool forceDownload = false) {
         curl_easy_cleanup(curl);
 
         if (res == CURLE_OK && !buffer.empty()) {
-            saveManifestCache(buffer); // Encrypt and save for next time
+            saveManifestCache(buffer);
             parseManifestJSON(buffer);
+
+            // Download covers non-blocking for missing items during update
+            for (size_t i = 0; i < consoleList.size(); ++i) {
+                currentStatusText = "Caching Covers (" + std::to_string(i + 1) + "/" + std::to_string(consoleList.size()) + ")";
+                renderProgressScreen(currentStatusText, ((float)(i + 1) / (float)consoleList.size()) * 100.0f);
+                fetchCoverImage(consoleList[i].name);
+            }
             
             renderProgressScreen("Database Updated!", 100.0f);
-            SDL_Delay(300);
+            SDL_Delay(200);
         }
     }
 }
@@ -282,60 +362,18 @@ void addPathToHistory(const std::string& path) {
     }
 }
 
-// Download and locally cache cover image
-SDL_Texture* loadCoverTexture(const std::string& folderName) {
-    // 1. Check RAM cache first
+// FAST COVER TEXTURE LOAD (Checks RAM and SD Card ONLY - Never blocks frame render)
+SDL_Texture* getCoverTexture(const std::string& folderName) {
     if (coverCache.count(folderName)) return coverCache[folderName];
-
-    // Ensure the caching directories exist on the SD Card
-    mkdir("sdmc:/switch/ROM_Downloader", 0777);
-    mkdir("sdmc:/switch/ROM_Downloader/covers", 0777);
 
     std::string localPath = "sdmc:/switch/ROM_Downloader/covers/" + folderName + ".png";
 
-    // 2. Check SD Card cache next
     SDL_Texture* localTex = IMG_LoadTexture(globalRenderer, localPath.c_str());
     if (localTex) {
         coverCache[folderName] = localTex;
         return localTex;
     }
 
-    // 3. If neither has it, download from GitHub CDN
-    std::string coverUrl = "https://raw.githubusercontent.com/SickDuck696969/ROM-Collection/master/" + folderName + "/cover.png";
-    CURL* curl = curl_easy_init();
-    if (!curl) return nullptr;
-
-    MemoryBuffer mem = { nullptr, 0 };
-    curl_easy_setopt(curl, CURLOPT_URL, coverUrl.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, MemoryWriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &mem);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "ROM-Downloader-Switch");
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
-    CURLcode res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
-
-    if (res == CURLE_OK && mem.size > 0) {
-        // Save the newly downloaded image to the SD card
-        FILE* fp = fopen(localPath.c_str(), "wb");
-        if (fp) {
-            fwrite(mem.data, 1, mem.size, fp);
-            fclose(fp);
-        }
-
-        // Render it to the screen and save to RAM cache
-        SDL_RWops* rw = SDL_RWFromMem(mem.data, mem.size);
-        SDL_Surface* surf = IMG_Load_RW(rw, 1);
-        free(mem.data);
-        if (surf) {
-            SDL_Texture* tex = SDL_CreateTextureFromSurface(globalRenderer, surf);
-            SDL_FreeSurface(surf);
-            coverCache[folderName] = tex;
-            return tex;
-        }
-    }
-    
-    if (mem.data) free(mem.data);
     return nullptr;
 }
 
@@ -426,17 +464,11 @@ void renderProgressScreen(const std::string& statusText, float percent) {
     snprintf(percentBuf, sizeof(percentBuf), "%.1f%%", percent);
     renderTextCentered(percentBuf, 640, 346, {0, 0, 0, 255}, font18);
 
-    SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(globalRenderer, 0, 0, 0, 60);
-    for (int i = 0; i < 720; i += 3) {
-        SDL_RenderDrawLine(globalRenderer, 0, i, 1280, i);
-    }
-    SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
-
+    renderScanlines();
     SDL_RenderPresent(globalRenderer);
 }
 
-// Download Network Progress Callback (Direct Accuracy - No Lag LERP)
+// Download Network Progress Callback (Throttled to max 60FPS)
 int downloadProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
     if (dltotal > 0) {
         float percent = ((float)dlnow / (float)dltotal) * 100.0f;
@@ -444,7 +476,6 @@ int downloadProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow
         static Uint64 lastTicks = 0;
         Uint64 currentTicks = SDL_GetTicks64();
 
-        // 60FPS update limits to avoid freezing the renderer thread
         if (currentTicks - lastTicks >= 16 || percent >= 100.0f) {
             renderProgressScreen(currentStatusText, percent);
             lastTicks = currentTicks;
@@ -481,7 +512,7 @@ bool extractZipFile(const std::string& zipPath, const std::string& destDir) {
                 if (unzOpenCurrentFile(zip) == UNZ_OK) {
                     FILE* outFile = fopen(fullPath.c_str(), "wb");
                     if (outFile) {
-                        // Increased buffer size for faster SD card write speeds
+                        setvbuf(outFile, NULL, _IOFBF, 64 * 1024);
                         char buffer[32768]; 
                         int readBytes = 0;
                         uLong totalRead = 0;
@@ -491,9 +522,8 @@ bool extractZipFile(const std::string& zipPath, const std::string& destDir) {
                             fwrite(buffer, 1, readBytes, outFile);
                             totalRead += readBytes;
 
-                            // Update progress INSIDE the loop so large files don't freeze the screen
                             Uint64 curExtTicks = SDL_GetTicks64();
-                            if (curExtTicks - lastExtTicks >= 16) {
+                            if (curExtTicks - lastExtTicks >= 33) { // 30 FPS progress updates to avoid frame locks
                                 float fileProgress = expectedSize > 0 ? ((float)totalRead / (float)expectedSize) : 0.0f;
                                 float overallPercent = (((float)i + fileProgress) / (float)totalFiles) * 100.0f;
                                 
@@ -508,17 +538,19 @@ bool extractZipFile(const std::string& zipPath, const std::string& destDir) {
             }
         }
 
-        // Force a screen update when each file successfully finishes
-        float endPercent = (((float)(i + 1)) / (float)totalFiles) * 100.0f;
-        renderProgressScreen(currentStatusText, endPercent);
-        lastExtTicks = SDL_GetTicks64();
+        Uint64 curTicks = SDL_GetTicks64();
+        if (curTicks - lastExtTicks >= 33 || i == totalFiles - 1) {
+            float endPercent = (((float)(i + 1)) / (float)totalFiles) * 100.0f;
+            renderProgressScreen(currentStatusText, endPercent);
+            lastExtTicks = curTicks;
+        }
 
         if (i < totalFiles - 1) unzGoToNextFile(zip);
     }
 
     unzClose(zip);
     renderProgressScreen(currentStatusText, 100.0f);
-    SDL_Delay(150);
+    SDL_Delay(100);
 
     return true;
 }
@@ -555,13 +587,14 @@ void executeDownloads() {
                 curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
                 curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, downloadProgressCallback);
                 curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 64 * 1024L);
+                curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
 
                 CURLcode res = curl_easy_perform(curl);
                 fclose(fp);
 
                 if (res == CURLE_OK) {
                     renderProgressScreen(currentStatusText, 100.0f);
-                    SDL_Delay(150);
+                    SDL_Delay(100);
                 }
 
                 std::string lowerName = item.name;
@@ -607,6 +640,8 @@ int main(int argc, char* argv[]) {
     SDL_Window* window = SDL_CreateWindow("ROM Downloader", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720, 0);
     globalRenderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
+    initScanlineTexture();
+
     font24 = TTF_OpenFont("romfs:/font.ttf", 36);
     font18 = TTF_OpenFont("romfs:/font.ttf", 26);
     fontLabel = TTF_OpenFont("romfs:/font.ttf", 30);
@@ -631,7 +666,6 @@ int main(int argc, char* argv[]) {
     loadHistory();
     loadSettings();
     
-    // Attempt to load from encrypted local cache (false = do not force download)
     fetchManifest(false);
 
     bool initialLaunchSfxPending = true;
@@ -675,7 +709,6 @@ int main(int argc, char* argv[]) {
         if (currentState == STATE_MAIN) {
             if (kDown & HidNpadButton_Plus) running = false;
             
-            // Force fetch latest manifest if Y is pressed
             if (kDown & HidNpadButton_Y) {
                 fetchManifest(true);
             }
@@ -701,7 +734,6 @@ int main(int argc, char* argv[]) {
             }
         } else if (currentState == STATE_ROMS) {
             if (kDown & HidNpadButton_B) {
-                // Wipe multi-selections when backing out
                 for (auto& item : consoleRomMap[currentConsoleName]) {
                     item.isSelected = false;
                 }
@@ -711,7 +743,6 @@ int main(int argc, char* argv[]) {
                 currentState = STATE_MAIN;
             }
 
-            // Quick reset search by pressing Y
             if (kDown & HidNpadButton_Y) {
                 romList = consoleRomMap[currentConsoleName];
                 selectedRomIdx = 0;
@@ -885,7 +916,7 @@ int main(int argc, char* argv[]) {
                 int imgY = yPos + 15;
                 SDL_Rect imgRect = {imgX, imgY, iconSize, iconSize};
 
-                SDL_Texture* cover = loadCoverTexture(consoleList[i].name);
+                SDL_Texture* cover = getCoverTexture(consoleList[i].name);
                 if (cover) {
                     SDL_RenderCopy(globalRenderer, cover, NULL, &imgRect);
                 } else {
@@ -897,7 +928,6 @@ int main(int argc, char* argv[]) {
             }
         } else if (currentState == STATE_ROMS) {
             renderText("Console: " + currentConsoleName, 400, 16, retroYellow, font24);
-            // Updated UI hints mapping
             renderText("[A] Confirm/DL  [X] Select  [Y] Reset Search  [+] Search  [L/R] Page  [B] Back", 40, 675, retroCyan, font18);
 
             int maxVisible = 10;
@@ -971,13 +1001,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(globalRenderer, 0, 0, 0, 70);
-        for (int i = 0; i < 720; i += 3) {
-            SDL_RenderDrawLine(globalRenderer, 0, i, 1280, i);
-        }
-        SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
-
+        renderScanlines();
         SDL_RenderPresent(globalRenderer);
 
         if (initialLaunchSfxPending) {
@@ -990,6 +1014,7 @@ int main(int argc, char* argv[]) {
         if (pair.second) SDL_DestroyTexture(pair.second);
     }
     if (bgTexture) SDL_DestroyTexture(bgTexture);
+    if (scanlineTexture) SDL_DestroyTexture(scanlineTexture);
 
     if (sfxNav) Mix_FreeChunk(sfxNav);
     if (sfxClick) Mix_FreeChunk(sfxClick);
