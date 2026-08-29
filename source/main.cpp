@@ -282,10 +282,25 @@ void addPathToHistory(const std::string& path) {
     }
 }
 
-// Download cover image
+// Download and locally cache cover image
 SDL_Texture* loadCoverTexture(const std::string& folderName) {
+    // 1. Check RAM cache first
     if (coverCache.count(folderName)) return coverCache[folderName];
 
+    // Ensure the caching directories exist on the SD Card
+    mkdir("sdmc:/switch/ROM_Downloader", 0777);
+    mkdir("sdmc:/switch/ROM_Downloader/covers", 0777);
+
+    std::string localPath = "sdmc:/switch/ROM_Downloader/covers/" + folderName + ".png";
+
+    // 2. Check SD Card cache next
+    SDL_Texture* localTex = IMG_LoadTexture(globalRenderer, localPath.c_str());
+    if (localTex) {
+        coverCache[folderName] = localTex;
+        return localTex;
+    }
+
+    // 3. If neither has it, download from GitHub CDN
     std::string coverUrl = "https://raw.githubusercontent.com/SickDuck696969/ROM-Collection/master/" + folderName + "/cover.png";
     CURL* curl = curl_easy_init();
     if (!curl) return nullptr;
@@ -301,6 +316,14 @@ SDL_Texture* loadCoverTexture(const std::string& folderName) {
     curl_easy_cleanup(curl);
 
     if (res == CURLE_OK && mem.size > 0) {
+        // Save the newly downloaded image to the SD card
+        FILE* fp = fopen(localPath.c_str(), "wb");
+        if (fp) {
+            fwrite(mem.data, 1, mem.size, fp);
+            fclose(fp);
+        }
+
+        // Render it to the screen and save to RAM cache
         SDL_RWops* rw = SDL_RWFromMem(mem.data, mem.size);
         SDL_Surface* surf = IMG_Load_RW(rw, 1);
         free(mem.data);
@@ -311,6 +334,7 @@ SDL_Texture* loadCoverTexture(const std::string& folderName) {
             return tex;
         }
     }
+    
     if (mem.data) free(mem.data);
     return nullptr;
 }
@@ -441,9 +465,9 @@ bool extractZipFile(const std::string& zipPath, const std::string& destDir) {
     }
 
     uLong totalFiles = globalInfo.number_entry;
-    uLong extractedFiles = 0;
     char filename[512];
     unz_file_info fileInfo;
+    static Uint64 lastExtTicks = 0;
 
     for (uLong i = 0; i < totalFiles; i++) {
         if (unzGetCurrentFileInfo(zip, &fileInfo, filename, sizeof(filename), NULL, 0, NULL, 0) == UNZ_OK) {
@@ -457,10 +481,25 @@ bool extractZipFile(const std::string& zipPath, const std::string& destDir) {
                 if (unzOpenCurrentFile(zip) == UNZ_OK) {
                     FILE* outFile = fopen(fullPath.c_str(), "wb");
                     if (outFile) {
-                        char buffer[8192];
+                        // Increased buffer size for faster SD card write speeds
+                        char buffer[32768]; 
                         int readBytes = 0;
+                        uLong totalRead = 0;
+                        uLong expectedSize = fileInfo.uncompressed_size;
+
                         while ((readBytes = unzReadCurrentFile(zip, buffer, sizeof(buffer))) > 0) {
                             fwrite(buffer, 1, readBytes, outFile);
+                            totalRead += readBytes;
+
+                            // Update progress INSIDE the loop so large files don't freeze the screen
+                            Uint64 curExtTicks = SDL_GetTicks64();
+                            if (curExtTicks - lastExtTicks >= 16) {
+                                float fileProgress = expectedSize > 0 ? ((float)totalRead / (float)expectedSize) : 0.0f;
+                                float overallPercent = (((float)i + fileProgress) / (float)totalFiles) * 100.0f;
+                                
+                                renderProgressScreen(currentStatusText, overallPercent);
+                                lastExtTicks = curExtTicks;
+                            }
                         }
                         fclose(outFile);
                     }
@@ -468,17 +507,11 @@ bool extractZipFile(const std::string& zipPath, const std::string& destDir) {
                 }
             }
         }
-        extractedFiles++;
 
-        // Smooth exact extraction progress calculation
-        static Uint64 lastExtTicks = 0;
-        Uint64 curExtTicks = SDL_GetTicks64();
-        float percent = ((float)extractedFiles / (float)totalFiles) * 100.0f;
-        
-        if (curExtTicks - lastExtTicks >= 16 || extractedFiles == totalFiles) {
-            renderProgressScreen(currentStatusText, percent);
-            lastExtTicks = curExtTicks;
-        }
+        // Force a screen update when each file successfully finishes
+        float endPercent = (((float)(i + 1)) / (float)totalFiles) * 100.0f;
+        renderProgressScreen(currentStatusText, endPercent);
+        lastExtTicks = SDL_GetTicks64();
 
         if (i < totalFiles - 1) unzGoToNextFile(zip);
     }
