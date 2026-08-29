@@ -125,6 +125,38 @@ size_t MemoryWriteCallback(void* contents, size_t size, size_t nmemb, void* user
     return total;
 }
 
+// --- Manifest Caching & Encryption ---
+void cryptManifest(std::string& data) {
+    // Simple XOR Cipher to encrypt/decrypt the manifest locally
+    const std::string key = "S1ckDuck69!SwitchApp"; 
+    for (size_t i = 0; i < data.size(); ++i) {
+        data[i] ^= key[i % key.length()];
+    }
+}
+
+void saveManifestCache(std::string data) {
+    mkdir("sdmc:/switch/ROM_Downloader", 0777);
+    cryptManifest(data); // Encrypt before writing
+    std::ofstream out("sdmc:/switch/ROM_Downloader/manifest.enc", std::ios::binary);
+    if (out.is_open()) {
+        out.write(data.c_str(), data.size());
+        out.close();
+    }
+}
+
+bool loadManifestCache(std::string& outData) {
+    std::ifstream in("sdmc:/switch/ROM_Downloader/manifest.enc", std::ios::binary);
+    if (!in.is_open()) return false;
+    
+    // Read raw encrypted data
+    outData.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    
+    // Decrypt back to valid JSON
+    cryptManifest(outData);
+    return true;
+}
+
 // Custom Manifest JSON Parser (Bypasses GitHub REST API)
 void parseManifestJSON(const std::string& json) {
     consoleList.clear();
@@ -180,12 +212,22 @@ void parseManifestJSON(const std::string& json) {
 }
 
 // Fetch Manifest via Raw GitHub CDN (Unlimited Requests)
-void fetchManifest() {
-    std::string url = "https://raw.githubusercontent.com/SickDuck696969/ROM-Collection/master/manifest.json";
-    CURL* curl = curl_easy_init();
+void fetchManifest(bool forceDownload = false) {
     std::string buffer;
 
-    currentStatusText = "Fetching ROM Database...";
+    // Check for encrypted local cache first for instant boot
+    if (!forceDownload && loadManifestCache(buffer) && !buffer.empty()) {
+        currentStatusText = "Loading Encrypted Cache...";
+        renderProgressScreen(currentStatusText, 100.0f);
+        parseManifestJSON(buffer);
+        SDL_Delay(100); 
+        return;
+    }
+
+    std::string url = "https://raw.githubusercontent.com/SickDuck696969/ROM-Collection/master/manifest.json";
+    CURL* curl = curl_easy_init();
+    
+    currentStatusText = forceDownload ? "Updating ROM Database..." : "Fetching ROM Database...";
     targetProgressPercent = 0.0f;
     displayedProgressPercent = 0.0f;
 
@@ -204,7 +246,11 @@ void fetchManifest() {
         curl_easy_cleanup(curl);
 
         if (res == CURLE_OK && !buffer.empty()) {
+            saveManifestCache(buffer); // Encrypt and save for next time
             parseManifestJSON(buffer);
+            
+            renderProgressScreen("Database Updated!", 100.0f);
+            SDL_Delay(300);
         }
     }
 }
@@ -434,8 +480,6 @@ bool extractZipFile(const std::string& zipPath, const std::string& destDir) {
     }
 
     unzClose(zip);
-
-    // FIX: Force render to 100% when extraction completes
     renderProgressScreen("Extracting archive...", 100.0f);
     SDL_Delay(150);
 
@@ -480,7 +524,6 @@ void executeDownloads() {
                 CURLcode res = curl_easy_perform(curl);
                 fclose(fp);
 
-                // FIX: Force render to 100% when download finishes
                 if (res == CURLE_OK) {
                     renderProgressScreen(currentStatusText, 100.0f);
                     SDL_Delay(150);
@@ -554,7 +597,9 @@ int main(int argc, char* argv[]) {
 
     loadHistory();
     loadSettings();
-    fetchManifest();
+    
+    // Attempt to load from encrypted local cache (false = do not force download)
+    fetchManifest(false);
 
     bool initialLaunchSfxPending = true;
     int repeatTimer = 0;
@@ -596,6 +641,11 @@ int main(int argc, char* argv[]) {
         // Controller Engine State Management
         if (currentState == STATE_MAIN) {
             if (kDown & HidNpadButton_Plus) running = false;
+            
+            // Force fetch latest manifest if Y is pressed
+            if (kDown & HidNpadButton_Y) {
+                fetchManifest(true);
+            }
 
             if (!consoleList.empty()) {
                 if (kDown & (HidNpadButton_Up | HidNpadButton_StickLUp)) selectedConsoleIdx = std::max(0, selectedConsoleIdx - 4);
@@ -626,7 +676,6 @@ int main(int argc, char* argv[]) {
                 if (kDown & (HidNpadButton_Left | HidNpadButton_StickLLeft)) selectedRomIdx = std::max(0, selectedRomIdx - 10);
                 if (kDown & (HidNpadButton_Right | HidNpadButton_StickLRight)) selectedRomIdx = std::min((int)romList.size() - 1, selectedRomIdx + 10);
 
-                // FIX: Toggle and sync selection back to master so filtering preserves state
                 if (kDown & HidNpadButton_X) {
                     romList[selectedRomIdx].isSelected = !romList[selectedRomIdx].isSelected;
                     for (auto& masterItem : consoleRomMap[currentConsoleName]) {
@@ -643,7 +692,6 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // FEATURE: Contextual search logic mapped to PLUS button
             if (kDown & HidNpadButton_Plus) {
                 SwkbdConfig swkbd;
                 if (R_SUCCEEDED(swkbdCreate(&swkbd, 0))) {
@@ -660,7 +708,6 @@ int main(int argc, char* argv[]) {
                             std::string lowerName = item.name;
                             std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
                             
-                            // Case-Insensitive Filter
                             if (query.empty() || lowerName.find(query) != std::string::npos) {
                                 romList.push_back(item);
                             }
@@ -748,7 +795,8 @@ int main(int argc, char* argv[]) {
         renderText("SFX: " + std::string(sfxEnabled ? "[ON]" : "[OFF]"), 1130, 20, sfxEnabled ? retroGreen : retroYellow, font18);
 
         if (currentState == STATE_MAIN) {
-            renderText("[A] Open   [-] Toggle SFX   [L/R] Page Jump   [+] Exit", 40, 675, retroCyan, font18);
+            // Updated UI instructions to reflect the Y button refresh command
+            renderText("[A] Open   [Y] Update List   [-] Toggle SFX   [L/R] Page   [+] Exit", 40, 675, retroCyan, font18);
 
             int cols = 4;
             int rows = 3;
@@ -801,7 +849,6 @@ int main(int argc, char* argv[]) {
             }
         } else if (currentState == STATE_ROMS) {
             renderText("Console: " + currentConsoleName, 400, 16, retroYellow, font24);
-            // FIX: Added [+] instruction here to footer text
             renderText("[A] Confirm / DL   [X] Select   [+] Search   [Left/Right] Page   [B] Back", 40, 675, retroCyan, font18);
 
             int maxVisible = 10;
