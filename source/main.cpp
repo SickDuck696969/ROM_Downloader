@@ -116,10 +116,11 @@ void saveSettings() {
     out << (sfxEnabled ? 1 : 0);
 }
 
-void playSfx(Mix_Chunk* chunk) {
+int playSfx(Mix_Chunk* chunk) {
     if (sfxEnabled && chunk) {
-        Mix_PlayChannel(-1, chunk, 0);
+        return Mix_PlayChannel(-1, chunk, 0); // Returns the specific channel used
     }
+    return -1; // Indicates no sound is playing
 }
 
 // --- Network Callbacks ---
@@ -358,7 +359,19 @@ void fetchManifest(bool forceDownload = false) {
             }
             
             renderProgressScreen("Database Updated!", 100.0f);
-            SDL_Delay(200);
+            
+            // Play the success sound and grab the channel it's playing on
+            int sfxChannel = playSfx(sfxComp);
+            
+            if (sfxChannel != -1) {
+                // Keep the screen frozen until this specific audio channel finishes playing
+                while (Mix_Playing(sfxChannel)) {
+                    SDL_Delay(16); // Wait ~1 frame to prevent locking the CPU
+                }
+            } else {
+                // If sounds are disabled, just show the screen for 1 second instead
+                SDL_Delay(1000); 
+            }
         }
     }
 }
