@@ -42,17 +42,22 @@ std::string currentConsolePath = "";
 std::string currentSdPath = "sdmc:/";
 
 std::vector<RepoItem> consoleList;
+std::vector<RepoItem> otherList; // For eBook and Music
 std::map<std::string, std::vector<RepoItem>> consoleRomMap;
 std::vector<RepoItem> romList;
 std::vector<std::string> dirList;
 std::vector<std::string> pathHistory;
 
 int selectedConsoleIdx = 0;
+int selectedOtherIdx = 0;
+int selectedSection = 0; // 0 = Consoles, 1 = Other
+
 int selectedRomIdx = 0;
 int selectedDirIdx = 0;
 int selectedHistoryIdx = 0;
 
 int consoleScrollOffset = 0;
+int otherScrollOffset = 0;
 int romScrollOffset = 0;
 int dirScrollOffset = 0;
 
@@ -118,9 +123,9 @@ void saveSettings() {
 
 int playSfx(Mix_Chunk* chunk) {
     if (sfxEnabled && chunk) {
-        return Mix_PlayChannel(-1, chunk, 0); // Returns the specific channel used
+        return Mix_PlayChannel(-1, chunk, 0); 
     }
-    return -1; // Indicates no sound is playing
+    return -1; 
 }
 
 // --- Network Callbacks ---
@@ -181,6 +186,7 @@ bool loadManifestCache(std::string& outData) {
 // Custom Manifest JSON Parser
 void parseManifestJSON(const std::string& json) {
     consoleList.clear();
+    otherList.clear();
     consoleRomMap.clear();
 
     size_t pos = 0;
@@ -210,7 +216,13 @@ void parseManifestJSON(const std::string& json) {
                 cItem.name = console;
                 cItem.path = console;
                 cItem.isDir = true;
-                consoleList.push_back(cItem);
+                
+                if (console == "eBook" || console == "Music") {
+                    otherList.push_back(cItem);
+                } else {
+                    consoleList.push_back(cItem);
+                }
+                
                 consoleRomMap[console] = std::vector<RepoItem>();
             }
 
@@ -239,7 +251,7 @@ std::string urlEncode(const std::string& value) {
         if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
             result += c;
         } else if (c == ' ') {
-            result += "%20"; // Converts spaces for the web
+            result += "%20"; 
         } else {
             char buf[4];
             snprintf(buf, sizeof(buf), "%%%02X", (unsigned char)c);
@@ -256,10 +268,8 @@ void fetchCoverImage(const std::string& folderName) {
     std::string localPath = "sdmc:/switch/ROM_Downloader/covers/" + folderName + ".png";
 
     struct stat st;
-    // FIX 3: Ignore files smaller than 100 bytes (automatically overwrites those 11b text files)
     if (stat(localPath.c_str(), &st) == 0 && st.st_size > 100) return;
 
-    // FIX 1: URL Encode the folder name so spaces don't break the link
     std::string coverUrl = "https://raw.githubusercontent.com/SickDuck696969/ROM-Collection/master/" + urlEncode(folderName) + "/cover.png";
     
     CURL* curl = curl_easy_init();
@@ -271,10 +281,7 @@ void fetchCoverImage(const std::string& folderName) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &mem);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "ROM-Downloader-Switch");
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    
-    // FIX 2: Force cURL to fail if GitHub returns a 404 Not Found
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L); 
-    
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 8L);
 
@@ -285,7 +292,6 @@ void fetchCoverImage(const std::string& folderName) {
     
     curl_easy_cleanup(curl);
 
-    // Only save the file if we got a real 200 OK and it's actually an image (larger than a tiny text string)
     if (res == CURLE_OK && http_code == 200 && mem.size > 100) {
         FILE* fp = fopen(localPath.c_str(), "wb");
         if (fp) {
@@ -301,29 +307,21 @@ void fetchCoverImage(const std::string& folderName) {
 void fetchManifest(bool forceDownload = false) {
     std::string buffer;
 
-    // Fast-path local load (Triggers when booting with cached assets)
     if (!forceDownload && loadManifestCache(buffer) && !buffer.empty()) {
         parseManifestJSON(buffer);
         
-        // --- Fake 3-Second Loading Bar ---
         Uint64 startTicks = SDL_GetTicks64();
         Uint64 currentTicks = startTicks;
         
-        while (currentTicks - startTicks < 3000) { // 3000 ms = 3 seconds
-            // Calculate percentage (0.0 to 100.0) based on time elapsed
+        while (currentTicks - startTicks < 3000) { 
             float percent = ((float)(currentTicks - startTicks) / 3000.0f) * 100.0f;
-            
             renderProgressScreen("Loading Database...", percent);
-            
-            SDL_Delay(16); // ~60 FPS limit so we don't cook the Switch CPU
+            SDL_Delay(16); 
             currentTicks = SDL_GetTicks64();
         }
         
-        // Cap it off at 100% just in case the math rounded weirdly
         renderProgressScreen("System Ready!", 100.0f);
-        SDL_Delay(200); // Brief pause so the user actually sees it finish
-        // ---------------------------------
-        
+        SDL_Delay(200); 
         return;
     }
 
@@ -351,25 +349,31 @@ void fetchManifest(bool forceDownload = false) {
             saveManifestCache(buffer);
             parseManifestJSON(buffer);
 
-            // Download covers non-blocking for missing items during update
+            int totalCategories = consoleList.size() + otherList.size();
+            int currentCat = 0;
+            
             for (size_t i = 0; i < consoleList.size(); ++i) {
-                currentStatusText = "Caching Covers (" + std::to_string(i + 1) + "/" + std::to_string(consoleList.size()) + ")";
-                renderProgressScreen(currentStatusText, ((float)(i + 1) / (float)consoleList.size()) * 100.0f);
+                currentCat++;
+                currentStatusText = "Caching Covers (" + std::to_string(currentCat) + "/" + std::to_string(totalCategories) + ")";
+                renderProgressScreen(currentStatusText, ((float)currentCat / (float)totalCategories) * 100.0f);
                 fetchCoverImage(consoleList[i].name);
+            }
+            
+            for (size_t i = 0; i < otherList.size(); ++i) {
+                currentCat++;
+                currentStatusText = "Caching Covers (" + std::to_string(currentCat) + "/" + std::to_string(totalCategories) + ")";
+                renderProgressScreen(currentStatusText, ((float)currentCat / (float)totalCategories) * 100.0f);
+                fetchCoverImage(otherList[i].name);
             }
             
             renderProgressScreen("Database Updated!", 100.0f);
             
-            // Play the success sound and grab the channel it's playing on
             int sfxChannel = playSfx(sfxComp);
-            
             if (sfxChannel != -1) {
-                // Keep the screen frozen until this specific audio channel finishes playing
                 while (Mix_Playing(sfxChannel)) {
-                    SDL_Delay(16); // Wait ~1 frame to prevent locking the CPU
+                    SDL_Delay(16); 
                 }
             } else {
-                // If sounds are disabled, just show the screen for 1 second instead
                 SDL_Delay(1000); 
             }
         }
@@ -395,7 +399,7 @@ void addPathToHistory(const std::string& path) {
     }
 }
 
-// FAST COVER TEXTURE LOAD (Checks RAM and SD Card ONLY - Never blocks frame render)
+// FAST COVER TEXTURE LOAD
 SDL_Texture* getCoverTexture(const std::string& folderName) {
     if (coverCache.count(folderName)) return coverCache[folderName];
 
@@ -501,7 +505,7 @@ void renderProgressScreen(const std::string& statusText, float percent) {
     SDL_RenderPresent(globalRenderer);
 }
 
-// Download Network Progress Callback (Throttled to max 60FPS)
+// Download Network Progress Callback 
 int downloadProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
     if (dltotal > 0) {
         float percent = ((float)dlnow / (float)dltotal) * 100.0f;
@@ -556,7 +560,7 @@ bool extractZipFile(const std::string& zipPath, const std::string& destDir) {
                             totalRead += readBytes;
 
                             Uint64 curExtTicks = SDL_GetTicks64();
-                            if (curExtTicks - lastExtTicks >= 33) { // 30 FPS progress updates to avoid frame locks
+                            if (curExtTicks - lastExtTicks >= 33) { 
                                 float fileProgress = expectedSize > 0 ? ((float)totalRead / (float)expectedSize) : 0.0f;
                                 float overallPercent = (((float)i + fileProgress) / (float)totalFiles) * 100.0f;
                                 
@@ -746,23 +750,70 @@ int main(int argc, char* argv[]) {
                 fetchManifest(true);
             }
 
-            if (!consoleList.empty()) {
-                if (kDown & (HidNpadButton_Up | HidNpadButton_StickLUp)) selectedConsoleIdx = std::max(0, selectedConsoleIdx - 4);
-                if (kDown & (HidNpadButton_Down | HidNpadButton_StickLDown)) selectedConsoleIdx = std::min((int)consoleList.size() - 1, selectedConsoleIdx + 4);
-                if (kDown & (HidNpadButton_Left | HidNpadButton_StickLLeft)) selectedConsoleIdx = std::max(0, selectedConsoleIdx - 1);
-                if (kDown & (HidNpadButton_Right | HidNpadButton_StickLRight)) selectedConsoleIdx = std::min((int)consoleList.size() - 1, selectedConsoleIdx + 1);
+            // Tab Toggle
+            if (kDown & HidNpadButton_X) {
+                selectedSection = (selectedSection == 0) ? 1 : 0;
+            }
 
-                if (kDown & HidNpadButton_L) selectedConsoleIdx = std::max(0, selectedConsoleIdx - 12);
-                if (kDown & HidNpadButton_R) selectedConsoleIdx = std::min((int)consoleList.size() - 1, selectedConsoleIdx + 12);
+            if (selectedSection == 0) { // Consoles Active
+                if (!consoleList.empty()) {
+                    if (kDown & (HidNpadButton_Up | HidNpadButton_StickLUp)) {
+                        if (selectedConsoleIdx >= 4) selectedConsoleIdx -= 4;
+                    }
+                    if (kDown & (HidNpadButton_Down | HidNpadButton_StickLDown)) {
+                        if (selectedConsoleIdx + 4 < (int)consoleList.size()) {
+                            selectedConsoleIdx += 4;
+                        }
+                    }
+                    if (kDown & (HidNpadButton_Left | HidNpadButton_StickLLeft)) {
+                        selectedConsoleIdx = std::max(0, selectedConsoleIdx - 1);
+                    }
+                    if (kDown & (HidNpadButton_Right | HidNpadButton_StickLRight)) {
+                        selectedConsoleIdx = std::min((int)consoleList.size() - 1, selectedConsoleIdx + 1);
+                    }
 
-                if (kDown & HidNpadButton_A) {
-                    currentConsoleName = consoleList[selectedConsoleIdx].name;
-                    currentConsolePath = consoleList[selectedConsoleIdx].path;
+                    if (kDown & HidNpadButton_L) selectedConsoleIdx = std::max(0, selectedConsoleIdx - 12);
+                    if (kDown & HidNpadButton_R) selectedConsoleIdx = std::min((int)consoleList.size() - 1, selectedConsoleIdx + 12);
 
-                    romList = consoleRomMap[currentConsoleName];
-                    selectedRomIdx = 0;
-                    romScrollOffset = 0;
-                    currentState = STATE_ROMS;
+                    if (kDown & HidNpadButton_A) {
+                        currentConsoleName = consoleList[selectedConsoleIdx].name;
+                        currentConsolePath = consoleList[selectedConsoleIdx].path;
+
+                        romList = consoleRomMap[currentConsoleName];
+                        selectedRomIdx = 0;
+                        romScrollOffset = 0;
+                        currentState = STATE_ROMS;
+                    }
+                } 
+            } else if (selectedSection == 1) { // Other Section Active
+                if (!otherList.empty()) {
+                    if (kDown & (HidNpadButton_Up | HidNpadButton_StickLUp)) {
+                        if (selectedOtherIdx >= 4) selectedOtherIdx -= 4;
+                    }
+                    if (kDown & (HidNpadButton_Down | HidNpadButton_StickLDown)) {
+                        if (selectedOtherIdx + 4 < (int)otherList.size()) {
+                            selectedOtherIdx += 4;
+                        }
+                    }
+                    if (kDown & (HidNpadButton_Left | HidNpadButton_StickLLeft)) {
+                        selectedOtherIdx = std::max(0, selectedOtherIdx - 1);
+                    }
+                    if (kDown & (HidNpadButton_Right | HidNpadButton_StickLRight)) {
+                        selectedOtherIdx = std::min((int)otherList.size() - 1, selectedOtherIdx + 1);
+                    }
+
+                    if (kDown & HidNpadButton_L) selectedOtherIdx = std::max(0, selectedOtherIdx - 12);
+                    if (kDown & HidNpadButton_R) selectedOtherIdx = std::min((int)otherList.size() - 1, selectedOtherIdx + 12);
+
+                    if (kDown & HidNpadButton_A) {
+                        currentConsoleName = otherList[selectedOtherIdx].name;
+                        currentConsolePath = otherList[selectedOtherIdx].path;
+
+                        romList = consoleRomMap[currentConsoleName];
+                        selectedRomIdx = 0;
+                        romScrollOffset = 0;
+                        currentState = STATE_ROMS;
+                    }
                 }
             }
         } else if (currentState == STATE_ROMS) {
@@ -809,7 +860,7 @@ int main(int argc, char* argv[]) {
                 SwkbdConfig swkbd;
                 if (R_SUCCEEDED(swkbdCreate(&swkbd, 0))) {
                     swkbdConfigMakePresetDefault(&swkbd);
-                    swkbdConfigSetGuideText(&swkbd, "Search console ROMs (empty to reset)");
+                    swkbdConfigSetGuideText(&swkbd, "Search folder (empty to reset)");
                     
                     char inputBuf[256] = {0};
                     if (R_SUCCEEDED(swkbdShow(&swkbd, inputBuf, sizeof(inputBuf)))) {
@@ -908,59 +959,108 @@ int main(int argc, char* argv[]) {
         renderText("SFX: " + std::string(sfxEnabled ? "[ON]" : "[OFF]"), 1130, 20, sfxEnabled ? retroGreen : retroYellow, font18);
 
         if (currentState == STATE_MAIN) {
-            renderText("[A] Open   [Y] Update List   [-] Toggle SFX   [L/R] Page   [+] Exit", 40, 675, retroCyan, font18);
+            std::string tabSwitchText = selectedSection == 0 ? "Other Tab" : "Consoles Tab";
+            renderText("[A] Open   [Y] Update List   [-] Toggle SFX   [L/R] Page   [X] " + tabSwitchText + "   [+] Exit", 40, 675, retroCyan, font18);
 
             int cols = 4;
-            int rows = 3;
-            int maxVisible = cols * rows;
-
-            int currentPage = selectedConsoleIdx / maxVisible;
-            consoleScrollOffset = currentPage * maxVisible;
-
+            int maxVisible = 12; // 3 rows of 4 (4x3 layout)
             int startY = 85;
             int startX = 40;
             int cellW = 1200 / cols;
-            int cellH = 190;
+            int cellH = 190; 
 
-            for (size_t i = consoleScrollOffset; i < consoleList.size() && i < (size_t)(consoleScrollOffset + maxVisible); ++i) {
-                int r = (i - consoleScrollOffset) / cols;
-                int c = (i - consoleScrollOffset) % cols;
+            if (selectedSection == 0) { // Consoles View
+                int currentPage = selectedConsoleIdx / maxVisible;
+                consoleScrollOffset = currentPage * maxVisible;
 
-                int xPos = startX + c * cellW;
-                int yPos = startY + r * cellH;
+                for (size_t i = consoleScrollOffset; i < consoleList.size() && i < (size_t)(consoleScrollOffset + maxVisible); ++i) {
+                    int r = (i - consoleScrollOffset) / cols;
+                    int c = (i - consoleScrollOffset) % cols;
 
-                SDL_Rect cell = {xPos + 5, yPos + 5, cellW - 10, cellH - 10};
+                    int xPos = startX + c * cellW;
+                    int yPos = startY + r * cellH;
 
-                if ((int)i == selectedConsoleIdx) {
-                    SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 255);
-                    SDL_RenderDrawRect(globalRenderer, &cell);
+                    SDL_Rect cell = {xPos + 5, yPos + 5, cellW - 10, cellH - 10};
 
-                    SDL_Rect inner = {cell.x + 1, cell.y + 1, cell.w - 2, cell.h - 2};
-                    SDL_RenderDrawRect(globalRenderer, &inner);
+                    if ((int)i == selectedConsoleIdx) {
+                        SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 255);
+                        SDL_RenderDrawRect(globalRenderer, &cell);
 
-                    SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
-                    SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 40);
-                    SDL_RenderFillRect(globalRenderer, &cell);
-                    SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
+                        SDL_Rect inner = {cell.x + 1, cell.y + 1, cell.w - 2, cell.h - 2};
+                        SDL_RenderDrawRect(globalRenderer, &inner);
+
+                        SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
+                        SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 40);
+                        SDL_RenderFillRect(globalRenderer, &cell);
+                        SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
+                    }
+
+                    int iconSize = 130;
+                    int imgX = xPos + (cellW / 2) - (iconSize / 2);
+                    int imgY = yPos + 10;
+                    SDL_Rect imgRect = {imgX, imgY, iconSize, iconSize};
+
+                    SDL_Texture* cover = getCoverTexture(consoleList[i].name);
+                    if (cover) {
+                        SDL_RenderCopy(globalRenderer, cover, NULL, &imgRect);
+                    } else {
+                        SDL_SetRenderDrawColor(globalRenderer, retroHeader.r, retroHeader.g, retroHeader.b, 255);
+                        SDL_RenderFillRect(globalRenderer, &imgRect);
+                    }
+
+                    renderTextCentered(consoleList[i].name, xPos + (cellW / 2), imgY + iconSize + 5, retroWhite, fontLabel);
                 }
+            } else if (selectedSection == 1) { // Other Section View
+                int currentPage = selectedOtherIdx / maxVisible;
+                otherScrollOffset = currentPage * maxVisible;
 
-                int iconSize = 140;
-                int imgX = xPos + (cellW / 2) - (iconSize / 2);
-                int imgY = yPos + 15;
-                SDL_Rect imgRect = {imgX, imgY, iconSize, iconSize};
+                for (size_t i = otherScrollOffset; i < otherList.size() && i < (size_t)(otherScrollOffset + maxVisible); ++i) {
+                    int r = (i - otherScrollOffset) / cols;
+                    int c = (i - otherScrollOffset) % cols;
 
-                SDL_Texture* cover = getCoverTexture(consoleList[i].name);
-                if (cover) {
-                    SDL_RenderCopy(globalRenderer, cover, NULL, &imgRect);
-                } else {
-                    SDL_SetRenderDrawColor(globalRenderer, retroHeader.r, retroHeader.g, retroHeader.b, 255);
-                    SDL_RenderFillRect(globalRenderer, &imgRect);
+                    int xPos = startX + c * cellW;
+                    int yPos = startY + r * cellH;
+
+                    SDL_Rect cell = {xPos + 5, yPos + 5, cellW - 10, cellH - 10};
+
+                    if ((int)i == selectedOtherIdx) {
+                        SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 255);
+                        SDL_RenderDrawRect(globalRenderer, &cell);
+
+                        SDL_Rect inner = {cell.x + 1, cell.y + 1, cell.w - 2, cell.h - 2};
+                        SDL_RenderDrawRect(globalRenderer, &inner);
+
+                        SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
+                        SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 40);
+                        SDL_RenderFillRect(globalRenderer, &cell);
+                        SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
+                    }
+
+                    int iconSize = 130;
+                    int imgX = xPos + (cellW / 2) - (iconSize / 2);
+                    int imgY = yPos + 10;
+                    SDL_Rect imgRect = {imgX, imgY, iconSize, iconSize};
+
+                    SDL_Texture* cover = getCoverTexture(otherList[i].name);
+                    if (cover) {
+                        SDL_RenderCopy(globalRenderer, cover, NULL, &imgRect);
+                    } else {
+                        SDL_SetRenderDrawColor(globalRenderer, retroHeader.r, retroHeader.g, retroHeader.b, 255);
+                        SDL_RenderFillRect(globalRenderer, &imgRect);
+                    }
+
+                    renderTextCentered(otherList[i].name, xPos + (cellW / 2), imgY + iconSize + 5, retroWhite, fontLabel);
                 }
-
-                renderTextCentered(consoleList[i].name, xPos + (cellW / 2), imgY + iconSize - 1, retroWhite, fontLabel);
             }
         } else if (currentState == STATE_ROMS) {
-            renderText("Console: " + currentConsoleName, 400, 16, retroYellow, font24);
+            // Dynamic Header Logic for ROMs, Books, and Songs
+            std::string labelType = "games";
+            if (currentConsoleName == "eBook") labelType = "books";
+            else if (currentConsoleName == "Music") labelType = "songs";
+            
+            std::string titleText = currentConsoleName + " (" + std::to_string(romList.size()) + " " + labelType + ")";
+            renderTextCentered(titleText, 640, 16, retroYellow, font24);
+            
             renderText("[A] Confirm/DL  [X] Select  [Y] Reset Search  [+] Search  [L/R] Page  [B] Back", 40, 675, retroCyan, font18);
 
             int maxVisible = 10;
