@@ -1,5 +1,4 @@
 #ifndef THEMES_H
-#ifndef THEMES_H
 #define THEMES_H
 
 #include <SDL2/SDL.h>
@@ -8,137 +7,221 @@
 // Global UI Color Variables used across the app
 inline SDL_Color uiBg;
 inline SDL_Color uiPanel;
+inline SDL_Color uiPanelHov;
 inline SDL_Color uiBorder;
 inline SDL_Color uiText;
 inline SDL_Color uiTextDim;
 inline SDL_Color uiAccent;
 inline SDL_Color uiSuccess;
+inline SDL_Color uiWarning;
+inline SDL_Color uiDanger;
+inline SDL_Color uiInfo;
 
 inline int currentThemeIdx = 0;
-const int NUM_THEMES = 10;
+const int NUM_THEMES = 12;
 
 struct Theme {
     std::string name;
     SDL_Color bg;
     SDL_Color panel;
+    SDL_Color panelHov;
     SDL_Color border;
     SDL_Color text;
     SDL_Color textDim;
     SDL_Color accent;
     SDL_Color success;
+    SDL_Color warning;
+    SDL_Color danger;
+    SDL_Color info;
 };
 
-// 10 Most Iconic Gaming Consoles (High-Contrast Palette Engine)
+// 12 Low-Density, High-Contrast Console Themes
+// Backgrounds and panels now share similar luminance to ensure 
+// the universal text color never washes out on either surface.
 inline const Theme CONSOLE_THEMES[NUM_THEMES] = {
-    // 0: NES (Nintendo Entertainment System)
+    // 0: NES (Deep Charcoal & Soft Red)
     {
-        "NES (1985)",
-        { 32, 32, 36, 255 },   // Slate Background
-        { 54, 54, 60, 255 },   // Matte Gray Panel
-        { 218, 41, 28, 255 },  // Controller Red Border
-        { 250, 250, 250, 255 },// Crisp White Text
-        { 185, 190, 195, 255 },// Light Silver TextDim
-        { 180, 30, 35, 255 },  // Deep Red Accent
-        { 230, 80, 60, 255 }   // Bright Red-Orange Success
+        "NES",
+        { 35,  35,  40,  255 }, // bg: Dark charcoal
+        { 50,  50,  55,  255 }, // panel: Mid-charcoal
+        { 65,  65,  70,  255 }, // panelHov
+        { 160, 45,  45,  255 }, // border: Muted classic red
+        { 225, 225, 230, 255 }, // text: Soft white (highly readable on dark)
+        { 140, 140, 145, 255 }, // textDim
+        { 160, 45,  45,  255 }, // accent
+        { 175, 135, 45,  255 }, // success: Gold
+        { 180, 120, 35,  255 }, // warning
+        { 160, 45,  45,  255 }, // danger
+        { 45,  110, 175, 255 }  // info
     },
-    // 1: SNES (Super Nintendo Entertainment System)
+    // 1: SNES (Dim Lavender Grey - Light Mode)
     {
-        "SNES (1990)",
-        { 34, 34, 46, 255 },   // Dark Purple-Gray Background
-        { 54, 52, 72, 255 },   // Console Gray Panel
-        { 125, 95, 205, 255 }, // SNES Purple Border
-        { 250, 250, 255, 255 },// Pure White Text
-        { 190, 185, 215, 255 },// Lavender Gray TextDim
-        { 95, 65, 165, 255 },  // Royal Purple Accent
-        { 175, 135, 245, 255 } // Bright Violet Success
+        "SNES",
+        { 165, 165, 175, 255 }, // bg: Muted, low-brightness grey
+        { 180, 180, 190, 255 }, // panel: Slightly lighter grey
+        { 195, 195, 205, 255 }, // panelHov
+        { 110, 90,  160, 255 }, // border: Muted purple
+        { 25,  25,  30,  255 }, // text: Near-black for perfect light-mode contrast
+        { 90,  90,  100, 255 }, // textDim
+        { 110, 90,  160, 255 }, // accent
+        { 25,  95,  55,  255 }, // success: Dark green
+        { 150, 90,  25,  255 }, // warning
+        { 160, 45,  55,  255 }, // danger
+        { 35,  85,  150, 255 }  // info
     },
-    // 2: Game Boy (Original DMG-01 LCD Matrix)
+    // 2: Game Boy Color (Dimmed Teal)
     {
-        "Game Boy (1989)",
-        { 18, 34, 18, 255 },   // Deep Dot-Matrix Background
-        { 32, 58, 32, 255 },   // Dark Olive Panel
-        { 139, 172, 15, 255 }, // Bright LCD Border
-        { 230, 250, 205, 255 },// Mint Light Text
-        { 160, 195, 40, 255 }, // Olive LCD TextDim
-        { 60, 105, 45, 255 },  // Mid-Green Accent
-        { 185, 225, 30, 255 }  // Neon Matrix Success
+        "GBC",
+        { 20,  50,  50,  255 }, // bg: Very dark teal
+        { 35,  65,  65,  255 }, // panel
+        { 50,  80,  80,  255 }, // panelHov
+        { 155, 40,  90,  255 }, // border: Desaturated berry
+        { 220, 230, 230, 255 }, // text
+        { 110, 140, 140, 255 }, // textDim
+        { 155, 40,  90,  255 }, // accent
+        { 190, 155, 45,  255 }, // success
+        { 200, 140, 35,  255 }, // warning
+        { 155, 40,  90,  255 }, // danger
+        { 40,  120, 175, 255 }  // info
     },
-    // 3: SEGA Genesis / Mega Drive
+    // 3: GBA Yellow (Dim Mustard - Light Mode)
     {
-        "SEGA Genesis (1988)",
-        { 18, 18, 22, 255 },   // High Definition Black
-        { 36, 36, 44, 255 },   // Metallic Console Panel
-        { 212, 160, 23, 255 }, // 16-BIT Gold Border
-        { 250, 250, 250, 255 },// Pure White Text
-        { 175, 180, 195, 255 },// Silver Gray TextDim
-        { 25, 80, 185, 255 },  // Sonic Blue Accent
-        { 245, 190, 35, 255 }  // Gold Ring Success
+        "GBA (Yellow)",
+        { 170, 150, 40,  255 }, // bg: Low-intensity mustard
+        { 185, 165, 50,  255 }, // panel
+        { 200, 180, 60,  255 }, // panelHov
+        { 140, 45,  35,  255 }, // border
+        { 20,  20,  25,  255 }, // text: Deep black for high contrast
+        { 100, 85,  25,  255 }, // textDim
+        { 140, 45,  35,  255 }, // accent
+        { 20,  85,  35,  255 }, // success
+        { 140, 80,  20,  255 }, // warning
+        { 140, 45,  35,  255 }, // danger
+        { 30,  75,  140, 255 }  // info
     },
-    // 4: PlayStation (PS1 - Classic Gray)
+    // 4: GBA Cobalt (Dark Cobalt)
     {
-        "PlayStation (1994)",
-        { 38, 40, 46, 255 },   // Original Grey Background
-        { 60, 62, 70, 255 },   // PS1 Chassis Panel
-        { 0, 115, 220, 255 },  // PS Blue Border
-        { 255, 255, 255, 255 },// Pure White Text
-        { 190, 195, 205, 255 },// Cool Gray TextDim
-        { 20, 65, 140, 255 },  // Cobalt Blue Accent
-        { 0, 205, 185, 255 }   // Teal Symbol Success
+        "GBA (Cobalt)",
+        { 25,  40,  90,  255 }, // bg: Deep desaturated blue
+        { 40,  55,  105, 255 }, // panel
+        { 55,  70,  120, 255 }, // panelHov
+        { 150, 150, 160, 255 }, // border
+        { 225, 230, 240, 255 }, // text
+        { 110, 125, 165, 255 }, // textDim
+        { 150, 150, 160, 255 }, // accent
+        { 55,  165, 135, 255 }, // success
+        { 195, 150, 45,  255 }, // warning
+        { 170, 55,  55,  255 }, // danger
+        { 190, 190, 200, 255 }  // info
     },
-    // 5: Nintendo 64 (N64 Charcoal)
+    // 5: GBA Pearl Pink (Dim Rose - Light Mode)
     {
-        "Nintendo 64 (1996)",
-        { 24, 24, 28, 255 },   // Charcoal Black Background
-        { 46, 48, 56, 255 },   // Slate Controller Panel
-        { 230, 20, 30, 255 },  // N64 Logo Red Border
-        { 250, 250, 250, 255 },// Pure White Text
-        { 180, 185, 195, 255 },// Neutral Gray TextDim
-        { 175, 25, 35, 255 },  // Dark Logo Red Accent
-        { 0, 185, 90, 255 }    // N64 Logo Green Success
+        "GBA (Pearl Pink)",
+        { 165, 120, 135, 255 }, // bg: Low-brightness dusty rose
+        { 180, 135, 150, 255 }, // panel
+        { 195, 150, 165, 255 }, // panelHov
+        { 130, 45,  65,  255 }, // border
+        { 25,  15,  20,  255 }, // text: Extremely dark burgundy
+        { 100, 60,  75,  255 }, // textDim
+        { 130, 45,  65,  255 }, // accent
+        { 25,  85,  45,  255 }, // success
+        { 150, 90,  25,  255 }, // warning
+        { 130, 40,  50,  255 }, // danger
+        { 30,  70,  135, 255 }  // info
     },
-    // 6: Nintendo GameCube (Indigo)
+    // 6: Famicom (Dim Cream - Light Mode)
+    // Fixed: Cream BG and Cream Panels ensure the dark text is readable everywhere. 
+    // Crimson is moved exclusively to borders and accents.
     {
-        "GameCube (2001)",
-        { 25, 20, 45, 255 },   // Deep Indigo Background
-        { 48, 40, 82, 255 },   // GameCube Purple Panel
-        { 125, 95, 215, 255 }, // Bright Purple Border
-        { 250, 250, 250, 255 },// Pure White Text
-        { 195, 185, 230, 255 },// Lavender TextDim
-        { 85, 55, 160, 255 },  // Indigo Accent
-        { 255, 195, 0, 255 }   // Solar Yellow Success
+        "Famicom",
+        { 185, 175, 150, 255 }, // bg: Muted tan/cream
+        { 200, 190, 165, 255 }, // panel: Slightly lighter cream
+        { 215, 205, 180, 255 }, // panelHov
+        { 150, 40,  50,  255 }, // border: Classic Famicom crimson
+        { 30,  20,  20,  255 }, // text: Dark red-tinted black for perfect clarity
+        { 120, 100, 90,  255 }, // textDim
+        { 150, 40,  50,  255 }, // accent
+        { 30,  100, 45,  255 }, // success: Legible dark green
+        { 160, 110, 30,  255 }, // warning
+        { 150, 40,  50,  255 }, // danger
+        { 40,  95,  160, 255 }  // info
     },
-    // 7: PlayStation 2 (Emotion Blue)
+    // 7: Sega Genesis (Deep Black & Power LED Red)
     {
-        "PlayStation 2 (2000)",
-        { 12, 14, 24, 255 },   // Midnight Black Background
-        { 24, 30, 52, 255 },   // Deep Navy Panel
-        { 0, 140, 230, 255 },  // Gradient Blue Border
-        { 245, 248, 255, 255 },// Bright Ice White Text
-        { 165, 190, 225, 255 },// Sky Tint TextDim
-        { 15, 75, 170, 255 },  // Deep Ocean Accent
-        { 0, 215, 255, 255 }   // Cyan Glow Success
+        "Sega Genesis",
+        { 20,  20,  20,  255 }, // bg: Matte black shell
+        { 38,  38,  38,  255 }, // panel: Dark grey plastic
+        { 55,  55,  55,  255 }, // panelHov
+        { 170, 30,  30,  255 }, // border: Power LED Red
+        { 230, 230, 230, 255 }, // text: Crisp white
+        { 130, 130, 130, 255 }, // textDim
+        { 170, 30,  30,  255 }, // accent
+        { 50,  140, 190, 255 }, // success: Sonic 16-bit Blue
+        { 190, 150, 35,  255 }, // warning: Golden Rings
+        { 170, 30,  30,  255 }, // danger
+        { 140, 140, 150, 255 }  // info
     },
-    // 8: Xbox (Original Neon & Black)
+    // 8: GameCube (Dark Indigo)
     {
-        "Original Xbox (2001)",
-        { 14, 20, 14, 255 },   // Deep Matrix Background
-        { 28, 40, 28, 255 },   // Xbox Jewel Panel
-        { 115, 195, 35, 255 }, // Neon Green Border
-        { 250, 255, 250, 255 },// Pure White Text
-        { 170, 210, 170, 255 },// Soft Mint TextDim
-        { 45, 115, 30, 255 },  // Forest Green Accent
-        { 130, 225, 40, 255 }  // Bright Neon Success
+        "GameCube",
+        { 40,  30,  75,  255 }, // bg: Very dark desaturated indigo
+        { 55,  45,  95,  255 }, // panel
+        { 70,  60,  115, 255 }, // panelHov
+        { 155, 125, 205, 255 }, // border
+        { 225, 225, 235, 255 }, // text
+        { 130, 115, 160, 255 }, // textDim
+        { 35,  140, 95,  255 }, // accent: A-Button Green
+        { 195, 155, 35,  255 }, // success: C-Stick Yellow
+        { 190, 120, 35,  255 }, // warning
+        { 170, 50,  50,  255 }, // danger
+        { 55,  135, 190, 255 }  // info
     },
-    // 9: Nintendo Switch (OLED Modern)
+    // 9: Xbox (Very Dark Matte Green)
     {
-        "Nintendo Switch (2017)",
-        { 20, 22, 26, 255 },   // Dark Joy-Con Background
-        { 38, 42, 50, 255 },   // Slate Grey Panel
-        { 255, 60, 75, 255 },  // Neon Red Border
-        { 255, 255, 255, 255 },// Crisp White Text
-        { 175, 185, 200, 255 },// Slate Blue TextDim
-        { 0, 160, 230, 255 },  // Neon Blue Accent
-        { 0, 225, 180, 255 }   // Mint Cyan Success
+        "Xbox",
+        { 18,  22,  18,  255 }, // bg: Barely-green matte black
+        { 32,  38,  32,  255 }, // panel
+        { 45,  52,  45,  255 }, // panelHov
+        { 45,  150, 45,  255 }, // border: Toned-down neon green
+        { 220, 230, 220, 255 }, // text
+        { 100, 125, 100, 255 }, // textDim
+        { 45,  150, 45,  255 }, // accent
+        { 50,  165, 50,  255 }, // success
+        { 185, 145, 35,  255 }, // warning
+        { 165, 50,  35,  255 }, // danger
+        { 40,  125, 165, 255 }  // info
+    },
+    // 10: Nintendo Switch (Dark Slate)
+    {
+        "Nintendo Switch",
+        { 40,  42,  45,  255 }, // bg: Slate grey
+        { 55,  58,  62,  255 }, // panel
+        { 70,  73,  78,  255 }, // panelHov
+        { 185, 60,  60,  255 }, // border: Muted Joycon Red
+        { 230, 230, 230, 255 }, // text
+        { 135, 140, 145, 255 }, // textDim
+        { 40,  150, 195, 255 }, // accent: Muted Joycon Blue
+        { 40,  165, 130, 255 }, // success
+        { 195, 155, 40,  255 }, // warning
+        { 185, 60,  60,  255 }, // danger
+        { 40,  150, 195, 255 }  // info
+    },
+    // 11: PlayStation 5 (Dark Midnight Core & Silver Borders)
+    // Fixed: Now a true dark mode. Dark midnight core allows pure readability 
+    // for the white text, while muted silver handles the borders.
+    {
+        "PlayStation 5",
+        { 25,  27,  33,  255 }, // bg: Deep midnight core
+        { 42,  45,  52,  255 }, // panel: Elevated midnight
+        { 58,  62,  70,  255 }, // panelHov
+        { 180, 185, 195, 255 }, // border: Matte silver plate
+        { 230, 235, 245, 255 }, // text: Crisp off-white
+        { 120, 125, 135, 255 }, // textDim
+        { 40,  120, 220, 255 }, // accent: DualSense Blue
+        { 40,  135, 205, 255 }, // success
+        { 190, 140, 40,  255 }, // warning
+        { 180, 55,  55,  255 }, // danger
+        { 100, 150, 200, 255 }  // info
     }
 };
 
@@ -146,13 +229,17 @@ inline void applyTheme(int idx) {
     if (idx < 0 || idx >= NUM_THEMES) idx = 0;
     currentThemeIdx = idx;
     
-    uiBg      = CONSOLE_THEMES[idx].bg;
-    uiPanel   = CONSOLE_THEMES[idx].panel;
-    uiBorder  = CONSOLE_THEMES[idx].border;
-    uiText    = CONSOLE_THEMES[idx].text;
-    uiTextDim = CONSOLE_THEMES[idx].textDim;
-    uiAccent  = CONSOLE_THEMES[idx].accent;
-    uiSuccess = CONSOLE_THEMES[idx].success;
+    uiBg       = CONSOLE_THEMES[idx].bg;
+    uiPanel    = CONSOLE_THEMES[idx].panel;
+    uiPanelHov = CONSOLE_THEMES[idx].panelHov;
+    uiBorder   = CONSOLE_THEMES[idx].border;
+    uiText     = CONSOLE_THEMES[idx].text;
+    uiTextDim  = CONSOLE_THEMES[idx].textDim;
+    uiAccent   = CONSOLE_THEMES[idx].accent;
+    uiSuccess  = CONSOLE_THEMES[idx].success;
+    uiWarning  = CONSOLE_THEMES[idx].warning;
+    uiDanger   = CONSOLE_THEMES[idx].danger;
+    uiInfo     = CONSOLE_THEMES[idx].info;
 }
 
 inline void cycleTheme() {

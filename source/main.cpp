@@ -967,7 +967,7 @@ int main(int argc, char* argv[]) {
         SDL_RenderDrawLine(globalRenderer, 0, 75, 1280, 75);
 
         // Header Content (Displays current console theme name alongside App Title)
-        std::string headerTitle = "ROM Downloader (" + CONSOLE_THEMES[currentThemeIdx].name + ")";
+        std::string headerTitle = "ROM Downloader";
         renderText(headerTitle, 40, 15, uiText, font24);
         renderText("SFX: " + std::string(sfxEnabled ? "ON" : "OFF"), 1140, 20, sfxEnabled ? uiSuccess : uiTextDim, font18);
 
