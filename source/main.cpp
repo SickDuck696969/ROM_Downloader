@@ -70,7 +70,7 @@ TTF_Font* font24 = nullptr;
 TTF_Font* font18 = nullptr;
 TTF_Font* fontLabel = nullptr;
 SDL_Renderer* globalRenderer = nullptr;
-SDL_Texture* scanlineTexture = nullptr;
+SDL_Texture* lcdFilterTexture = nullptr;
 
 Mix_Chunk* sfxNav = nullptr;
 Mix_Chunk* sfxClick = nullptr;
@@ -83,27 +83,36 @@ std::map<std::string, SDL_Texture*> coverCache;
 void renderProgressScreen(const std::string& statusText, float percent);
 int downloadProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow);
 
-// --- Scanline Overlay Pre-renderer ---
-void initScanlineTexture() {
+// --- Mandatory LCD Grid Filter Overlay Pre-renderer ---
+void initLCDFilterTexture() {
     SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, 1280, 720, 32, SDL_PIXELFORMAT_RGBA8888);
     if (surf) {
         SDL_FillRect(surf, NULL, SDL_MapRGBA(surf->format, 0, 0, 0, 0));
-        Uint32 lineCol = SDL_MapRGBA(surf->format, 0, 0, 0, 15);
+        Uint32 lineCol = SDL_MapRGBA(surf->format, 0, 0, 0, 30); // Low alpha for pixel matrix mask
+
+        // Horizontal scanlines every 3 pixels
         for (int y = 0; y < 720; y += 3) {
             SDL_Rect line = { 0, y, 1280, 1 };
             SDL_FillRect(surf, &line, lineCol);
         }
-        scanlineTexture = SDL_CreateTextureFromSurface(globalRenderer, surf);
+
+        // Vertical lines every 3 pixels to complete the LCD grid format
+        for (int x = 0; x < 1280; x += 3) {
+            SDL_Rect line = { x, 0, 1, 720 };
+            SDL_FillRect(surf, &line, lineCol);
+        }
+
+        lcdFilterTexture = SDL_CreateTextureFromSurface(globalRenderer, surf);
         SDL_FreeSurface(surf);
-        if (scanlineTexture) {
-            SDL_SetTextureBlendMode(scanlineTexture, SDL_BLENDMODE_BLEND);
+        if (lcdFilterTexture) {
+            SDL_SetTextureBlendMode(lcdFilterTexture, SDL_BLENDMODE_BLEND);
         }
     }
 }
 
-void renderScanlines() {
-    if (scanlineTexture) {
-        SDL_RenderCopy(globalRenderer, scanlineTexture, NULL, NULL);
+void renderLCDFilter() {
+    if (lcdFilterTexture) {
+        SDL_RenderCopy(globalRenderer, lcdFilterTexture, NULL, NULL);
     }
 }
 
@@ -114,9 +123,8 @@ void loadSettings() {
         if (in >> sfxVal) sfxEnabled = (sfxVal != 0);
         
         int themeVal;
-        // Read the theme index and apply it, defaulting to 0 if it goes out of bounds
         if (in >> themeVal) {
-            if (themeVal >= 0 && themeVal <= 6) {
+            if (themeVal >= 0 && themeVal <= 11) {
                 applyTheme(themeVal);
             } else {
                 applyTheme(0);
@@ -128,7 +136,6 @@ void loadSettings() {
 void saveSettings() {
     mkdir("sdmc:/switch/ROM_Downloader", 0777);
     std::ofstream out("sdmc:/switch/ROM_Downloader/settings.txt");
-    // Save both SFX state and Theme Index separated by a space
     out << (sfxEnabled ? 1 : 0) << " " << currentThemeIdx << "\n";
 }
 
@@ -513,7 +520,7 @@ void renderProgressScreen(const std::string& statusText, float percent) {
     snprintf(percentBuf, sizeof(percentBuf), "%.1f%%", percent);
     renderTextCentered(percentBuf, 640, 420, uiTextDim, font18);
 
-    renderScanlines();
+    renderLCDFilter();
     SDL_RenderPresent(globalRenderer);
 }
 
@@ -691,7 +698,7 @@ int main(int argc, char* argv[]) {
     SDL_Window* window = SDL_CreateWindow("ROM Downloader", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720, 0);
     globalRenderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
-    initScanlineTexture();
+    initLCDFilterTexture();
 
     // Fonts increased significantly for legibility 
     font24 = TTF_OpenFont("romfs:/font.ttf", 42); 
@@ -960,11 +967,11 @@ int main(int argc, char* argv[]) {
         SDL_SetRenderDrawColor(globalRenderer, uiBorder.r, uiBorder.g, uiBorder.b, 255);
         SDL_RenderDrawLine(globalRenderer, 0, 75, 1280, 75);
 
-        // Header Content (Adjusted padding to compensate for larger font24)
+        // Header Content
         renderText("ROM Downloader", 40, 15, uiText, font24);
         renderText("SFX: " + std::string(sfxEnabled ? "ON" : "OFF"), 1140, 20, sfxEnabled ? uiSuccess : uiTextDim, font18);
 
-        // Bottom Footer Base (anchors hints)
+        // Bottom Footer Base
         SDL_Rect footerRect = {0, 660, 1280, 60};
         SDL_SetRenderDrawColor(globalRenderer, uiPanel.r, uiPanel.g, uiPanel.b, 255);
         SDL_RenderFillRect(globalRenderer, &footerRect);
@@ -1069,15 +1076,14 @@ int main(int argc, char* argv[]) {
             
             renderText("[A] Confirm/DL   [X] Select   [Y] Reset Search   [+] Search   [L/R] Page   [B] Back", 40, 675, uiTextDim, font18);
 
-            int maxVisible = 9; // Reduced to 9 rows to give larger fonts more breathing room
+            int maxVisible = 9; 
             if (selectedRomIdx < romScrollOffset) romScrollOffset = selectedRomIdx;
             if (selectedRomIdx >= romScrollOffset + maxVisible) romScrollOffset = selectedRomIdx - maxVisible + 1;
 
             int yPos = 90;
             for (size_t i = romScrollOffset; i < romList.size() && i < (size_t)(romScrollOffset + maxVisible); ++i) {
-                SDL_Rect row = {40, yPos, 1200, 56}; // Taller row
+                SDL_Rect row = {40, yPos, 1200, 56}; 
                 
-                // Active/Hover row highlight
                 if ((int)i == selectedRomIdx) {
                     SDL_SetRenderDrawColor(globalRenderer, uiAccent.r, uiAccent.g, uiAccent.b, 255);
                     SDL_RenderFillRect(globalRenderer, &row);
@@ -1088,7 +1094,6 @@ int main(int argc, char* argv[]) {
                     SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
                 }
 
-                // Graphical Checkbox - Scaled up for legibility
                 SDL_Rect checkOuter = { row.x + 15, row.y + 16, 24, 24 };
                 SDL_SetRenderDrawColor(globalRenderer, uiBorder.r, uiBorder.g, uiBorder.b, 255);
                 SDL_RenderDrawRect(globalRenderer, &checkOuter);
@@ -1102,7 +1107,7 @@ int main(int argc, char* argv[]) {
                 SDL_Color textColor = ((int)i == selectedRomIdx) ? uiText : (romList[i].isSelected ? uiSuccess : uiText);
                 renderText(romList[i].name, row.x + 55, row.y + 10, textColor, fontLabel);
                 
-                yPos += 60; // Taller increment
+                yPos += 60; 
             }
         } else if (currentState == STATE_PATH_PICKER) {
             renderText("SD Path: " + currentSdPath, 40, 85, uiTextDim, font18);
@@ -1150,7 +1155,8 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        renderScanlines();
+        // Render LCD filter unconditionally over all scenes
+        renderLCDFilter();
         SDL_RenderPresent(globalRenderer);
 
         if (initialLaunchSfxPending) {
@@ -1162,7 +1168,7 @@ int main(int argc, char* argv[]) {
     for (auto& pair : coverCache) {
         if (pair.second) SDL_DestroyTexture(pair.second);
     }
-    if (scanlineTexture) SDL_DestroyTexture(scanlineTexture);
+    if (lcdFilterTexture) SDL_DestroyTexture(lcdFilterTexture);
 
     if (sfxNav) Mix_FreeChunk(sfxNav);
     if (sfxClick) Mix_FreeChunk(sfxClick);
