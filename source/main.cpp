@@ -124,7 +124,7 @@ void loadSettings() {
         
         int themeVal;
         if (in >> themeVal) {
-            if (themeVal >= 0 && themeVal <= 11) {
+            if (themeVal >= 0 && themeVal < NUM_THEMES) {
                 applyTheme(themeVal);
             } else {
                 applyTheme(0);
@@ -279,7 +279,7 @@ std::string urlEncode(const std::string& value) {
     return result;
 }
 
-// --- Fixed Cover Downloader ---
+// --- Cover Downloader ---
 void fetchCoverImage(const std::string& folderName) {
     mkdir("sdmc:/switch/ROM_Downloader", 0777);
     mkdir("sdmc:/switch/ROM_Downloader/covers", 0777);
@@ -686,7 +686,7 @@ int main(int argc, char* argv[]) {
     IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
     TTF_Init();
 
-    applyTheme(0); // Initialize Theme Palette First
+    applyTheme(0); // Initialize Default Theme (NES)
 
     Mix_Init(MIX_INIT_OGG);
     Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048);
@@ -700,7 +700,6 @@ int main(int argc, char* argv[]) {
 
     initLCDFilterTexture();
 
-    // Fonts increased significantly for legibility 
     font24 = TTF_OpenFont("romfs:/font.ttf", 42); 
     font18 = TTF_OpenFont("romfs:/font.ttf", 30); 
     fontLabel = TTF_OpenFont("romfs:/font.ttf", 36); 
@@ -742,7 +741,7 @@ int main(int argc, char* argv[]) {
         if (((kHeldRaw & HidNpadButton_ZL) && (kDown & HidNpadButton_ZR)) || 
             ((kHeldRaw & HidNpadButton_ZR) && (kDown & HidNpadButton_ZL))) {
             cycleTheme();
-            saveSettings(); // Saves the new theme instantly
+            saveSettings(); // Saves active theme index instantly
             playSfx(sfxComp);
         }
 
@@ -967,8 +966,9 @@ int main(int argc, char* argv[]) {
         SDL_SetRenderDrawColor(globalRenderer, uiBorder.r, uiBorder.g, uiBorder.b, 255);
         SDL_RenderDrawLine(globalRenderer, 0, 75, 1280, 75);
 
-        // Header Content
-        renderText("ROM Downloader", 40, 15, uiText, font24);
+        // Header Content (Displays current console theme name alongside App Title)
+        std::string headerTitle = "ROM Downloader (" + CONSOLE_THEMES[currentThemeIdx].name + ")";
+        renderText(headerTitle, 40, 15, uiText, font24);
         renderText("SFX: " + std::string(sfxEnabled ? "ON" : "OFF"), 1140, 20, sfxEnabled ? uiSuccess : uiTextDim, font18);
 
         // Bottom Footer Base
