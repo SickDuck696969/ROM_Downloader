@@ -17,6 +17,8 @@
 #include <cmath>
 #include <cctype>
 
+#include "themes.h" // Loads UI Palette variables and Switcher Logic
+
 // --- App State Engine ---
 enum AppState {
     STATE_MAIN,          // Console subfolder selection
@@ -68,8 +70,7 @@ TTF_Font* font24 = nullptr;
 TTF_Font* font18 = nullptr;
 TTF_Font* fontLabel = nullptr;
 SDL_Renderer* globalRenderer = nullptr;
-SDL_Texture* bgTexture = nullptr;
-SDL_Texture* scanlineTexture = nullptr; // Pre-baked scanlines optimization
+SDL_Texture* scanlineTexture = nullptr;
 
 Mix_Chunk* sfxNav = nullptr;
 Mix_Chunk* sfxClick = nullptr;
@@ -87,7 +88,7 @@ void initScanlineTexture() {
     SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, 1280, 720, 32, SDL_PIXELFORMAT_RGBA8888);
     if (surf) {
         SDL_FillRect(surf, NULL, SDL_MapRGBA(surf->format, 0, 0, 0, 0));
-        Uint32 lineCol = SDL_MapRGBA(surf->format, 0, 0, 0, 60);
+        Uint32 lineCol = SDL_MapRGBA(surf->format, 0, 0, 0, 15);
         for (int y = 0; y < 720; y += 3) {
             SDL_Rect line = { 0, y, 1280, 1 };
             SDL_FillRect(surf, &line, lineCol);
@@ -106,19 +107,29 @@ void renderScanlines() {
     }
 }
 
-// --- Audio & Settings Helpers ---
 void loadSettings() {
     std::ifstream in("sdmc:/switch/ROM_Downloader/settings.txt");
     if (in.is_open()) {
-        int val;
-        if (in >> val) sfxEnabled = (val != 0);
+        int sfxVal;
+        if (in >> sfxVal) sfxEnabled = (sfxVal != 0);
+        
+        int themeVal;
+        // Read the theme index and apply it, defaulting to 0 if it goes out of bounds
+        if (in >> themeVal) {
+            if (themeVal >= 0 && themeVal <= 6) {
+                applyTheme(themeVal);
+            } else {
+                applyTheme(0);
+            }
+        }
     }
 }
 
 void saveSettings() {
     mkdir("sdmc:/switch/ROM_Downloader", 0777);
     std::ofstream out("sdmc:/switch/ROM_Downloader/settings.txt");
-    out << (sfxEnabled ? 1 : 0);
+    // Save both SFX state and Theme Index separated by a space
+    out << (sfxEnabled ? 1 : 0) << " " << currentThemeIdx << "\n";
 }
 
 int playSfx(Mix_Chunk* chunk) {
@@ -414,6 +425,7 @@ SDL_Texture* getCoverTexture(const std::string& folderName) {
     return nullptr;
 }
 
+// Directory loader 
 void loadDirectoryList(const std::string& path) {
     dirList.clear();
     if (path != "sdmc:/") dirList.push_back("..");
@@ -429,7 +441,19 @@ void loadDirectoryList(const std::string& path) {
         }
         closedir(dir);
     }
-    std::sort(dirList.begin(), dirList.end());
+    
+    std::sort(dirList.begin(), dirList.end(), [](const std::string& a, const std::string& b) {
+        if (a == "..") return true;
+        if (b == "..") return false;
+        
+        std::string lower_a = a;
+        std::string lower_b = b;
+        std::transform(lower_a.begin(), lower_a.end(), lower_a.begin(), ::tolower);
+        std::transform(lower_b.begin(), lower_b.end(), lower_b.begin(), ::tolower);
+        
+        return lower_a < lower_b;
+    });
+    
     selectedDirIdx = 0;
     dirScrollOffset = 0;
 }
@@ -459,47 +483,35 @@ void renderTextCentered(const std::string& text, int centerX, int y, SDL_Color c
     }
 }
 
+// Modern Progress Screen Render
 void renderProgressScreen(const std::string& statusText, float percent) {
     if (percent < 0.0f) percent = 0.0f;
     if (percent > 100.0f) percent = 100.0f;
 
-    SDL_Color retroBg = {10, 15, 20, 255};
-    SDL_Color retroCyan = {50, 200, 255, 255};
-    SDL_Color retroGreen = {50, 255, 100, 255};
-    SDL_Color retroDark = {20, 30, 40, 255};
-
-    SDL_SetRenderDrawColor(globalRenderer, retroBg.r, retroBg.g, retroBg.b, 255);
+    SDL_SetRenderDrawColor(globalRenderer, uiBg.r, uiBg.g, uiBg.b, 255);
     SDL_RenderClear(globalRenderer);
 
-    if (bgTexture) {
-        SDL_RenderCopy(globalRenderer, bgTexture, NULL, NULL);
-    }
-
     SDL_Rect box = { 340, 240, 600, 240 };
-    SDL_SetRenderDrawColor(globalRenderer, retroDark.r, retroDark.g, retroDark.b, 255);
+    SDL_SetRenderDrawColor(globalRenderer, uiPanel.r, uiPanel.g, uiPanel.b, 255);
     SDL_RenderFillRect(globalRenderer, &box);
-    SDL_SetRenderDrawColor(globalRenderer, retroCyan.r, retroCyan.g, retroCyan.b, 255);
+    
+    SDL_SetRenderDrawColor(globalRenderer, uiBorder.r, uiBorder.g, uiBorder.b, 255);
     SDL_RenderDrawRect(globalRenderer, &box);
 
-    SDL_Rect innerBox = { 342, 242, 596, 236 };
-    SDL_RenderDrawRect(globalRenderer, &innerBox);
+    renderTextCentered(statusText, 640, 290, uiText, font24);
 
-    renderTextCentered(statusText, 640, 280, retroGreen, font24);
-
-    SDL_Rect barBg = { 380, 340, 520, 40 };
-    SDL_SetRenderDrawColor(globalRenderer, 30, 45, 55, 255);
+    SDL_Rect barBg = { 390, 360, 500, 30 };
+    SDL_SetRenderDrawColor(globalRenderer, uiBg.r, uiBg.g, uiBg.b, 255);
     SDL_RenderFillRect(globalRenderer, &barBg);
-    SDL_SetRenderDrawColor(globalRenderer, retroCyan.r, retroCyan.g, retroCyan.b, 255);
-    SDL_RenderDrawRect(globalRenderer, &barBg);
 
-    int fillWidth = (int)((520.0f * percent) / 100.0f);
-    SDL_Rect barFill = { 380, 340, fillWidth, 40 };
-    SDL_SetRenderDrawColor(globalRenderer, retroGreen.r, retroGreen.g, retroGreen.b, 255);
+    int fillWidth = (int)((496.0f * percent) / 100.0f);
+    SDL_Rect barFill = { 392, 362, fillWidth, 26 };
+    SDL_SetRenderDrawColor(globalRenderer, uiSuccess.r, uiSuccess.g, uiSuccess.b, 255);
     SDL_RenderFillRect(globalRenderer, &barFill);
 
     char percentBuf[16];
     snprintf(percentBuf, sizeof(percentBuf), "%.1f%%", percent);
-    renderTextCentered(percentBuf, 640, 346, {0, 0, 0, 255}, font18);
+    renderTextCentered(percentBuf, 640, 420, uiTextDim, font18);
 
     renderScanlines();
     SDL_RenderPresent(globalRenderer);
@@ -667,6 +679,8 @@ int main(int argc, char* argv[]) {
     IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
     TTF_Init();
 
+    applyTheme(0); // Initialize Theme Palette First
+
     Mix_Init(MIX_INIT_OGG);
     Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048);
 
@@ -679,26 +693,10 @@ int main(int argc, char* argv[]) {
 
     initScanlineTexture();
 
-    font24 = TTF_OpenFont("romfs:/font.ttf", 36);
-    font18 = TTF_OpenFont("romfs:/font.ttf", 26);
-    fontLabel = TTF_OpenFont("romfs:/font.ttf", 30);
-
-    bgTexture = IMG_LoadTexture(globalRenderer, "sdmc:/switch/ROM_Downloader/bg.png");
-    if (!bgTexture) {
-        bgTexture = IMG_LoadTexture(globalRenderer, "sdmc:/switch/ROM_Downloader/bg.jpg");
-    }
-    if (bgTexture) {
-        SDL_SetTextureAlphaMod(bgTexture, 20);
-    }
-
-    SDL_Color retroWhite = {220, 255, 220, 255};
-    SDL_Color retroText  = {220, 255, 220, 255};
-    SDL_Color retroGreen = {50, 255, 100, 255};
-    SDL_Color retroPink = {255, 50, 150, 255};
-    SDL_Color retroCyan = {50, 200, 255, 255};
-    SDL_Color retroYellow = {240, 220, 50, 255};
-    SDL_Color retroBg = {10, 15, 20, 255};
-    SDL_Color retroHeader = {20, 30, 40, 255};
+    // Fonts increased significantly for legibility 
+    font24 = TTF_OpenFont("romfs:/font.ttf", 42); 
+    font18 = TTF_OpenFont("romfs:/font.ttf", 30); 
+    fontLabel = TTF_OpenFont("romfs:/font.ttf", 36); 
 
     loadHistory();
     loadSettings();
@@ -731,6 +729,14 @@ int main(int argc, char* argv[]) {
         } else {
             lastHeldButton = 0;
             repeatTimer = 0;
+        }
+
+        // --- THEME SWITCHER DETECT (Simultaneous ZL + ZR) ---
+        if (((kHeldRaw & HidNpadButton_ZL) && (kDown & HidNpadButton_ZR)) || 
+            ((kHeldRaw & HidNpadButton_ZR) && (kDown & HidNpadButton_ZL))) {
+            cycleTheme();
+            saveSettings(); // Saves the new theme instantly
+            playSfx(sfxComp);
         }
 
         if (kDown & (repeatableButtons | HidNpadButton_L | HidNpadButton_R)) playSfx(sfxNav);
@@ -837,8 +843,8 @@ int main(int argc, char* argv[]) {
                 if (kDown & (HidNpadButton_Up | HidNpadButton_StickLUp)) selectedRomIdx = std::max(0, selectedRomIdx - 1);
                 if (kDown & (HidNpadButton_Down | HidNpadButton_StickLDown)) selectedRomIdx = std::min((int)romList.size() - 1, selectedRomIdx + 1);
 
-                if (kDown & (HidNpadButton_Left | HidNpadButton_StickLLeft)) selectedRomIdx = std::max(0, selectedRomIdx - 10);
-                if (kDown & (HidNpadButton_Right | HidNpadButton_StickLRight)) selectedRomIdx = std::min((int)romList.size() - 1, selectedRomIdx + 10);
+                if (kDown & (HidNpadButton_Left | HidNpadButton_StickLLeft)) selectedRomIdx = std::max(0, selectedRomIdx - 9);
+                if (kDown & (HidNpadButton_Right | HidNpadButton_StickLRight)) selectedRomIdx = std::min((int)romList.size() - 1, selectedRomIdx + 9);
 
                 if (kDown & HidNpadButton_X) {
                     romList[selectedRomIdx].isSelected = !romList[selectedRomIdx].isSelected;
@@ -890,16 +896,16 @@ int main(int argc, char* argv[]) {
                 if (kDown & (HidNpadButton_Up | HidNpadButton_StickLUp)) selectedDirIdx = std::max(0, selectedDirIdx - 1);
                 if (kDown & (HidNpadButton_Down | HidNpadButton_StickLDown)) selectedDirIdx = std::min((int)dirList.size() - 1, selectedDirIdx + 1);
 
-                if (kDown & (HidNpadButton_Left | HidNpadButton_StickLLeft)) selectedDirIdx = std::max(0, selectedDirIdx - 10);
-                if (kDown & (HidNpadButton_Right | HidNpadButton_StickLRight)) selectedDirIdx = std::min((int)dirList.size() - 1, selectedDirIdx + 10);
+                if (kDown & (HidNpadButton_Left | HidNpadButton_StickLLeft)) selectedDirIdx = std::max(0, selectedDirIdx - 9);
+                if (kDown & (HidNpadButton_Right | HidNpadButton_StickLRight)) selectedDirIdx = std::min((int)dirList.size() - 1, selectedDirIdx + 9);
 
                 if (kDown & HidNpadButton_A) {
                     std::string chosen = dirList[selectedDirIdx];
                     if (chosen == "..") {
                         size_t lastSlash = currentSdPath.find_last_of('/');
-                        if (lastSlash != std::string::npos && lastSlash > 5) {
+                        if (lastSlash != std::string::npos && lastSlash >= 5) {
                             currentSdPath = currentSdPath.substr(0, lastSlash);
-                            if (currentSdPath == "sdmc:") currentSdPath = "sdmc:/";
+                            if (currentSdPath.length() <= 5) currentSdPath = "sdmc:/";
                         }
                     } else {
                         if (currentSdPath.back() != '/') currentSdPath += "/";
@@ -928,8 +934,8 @@ int main(int argc, char* argv[]) {
                 if (kDown & (HidNpadButton_Up | HidNpadButton_StickLUp)) selectedHistoryIdx = std::max(0, selectedHistoryIdx - 1);
                 if (kDown & (HidNpadButton_Down | HidNpadButton_StickLDown)) selectedHistoryIdx = std::min((int)pathHistory.size() - 1, selectedHistoryIdx + 1);
 
-                if (kDown & (HidNpadButton_Left | HidNpadButton_StickLLeft)) selectedHistoryIdx = std::max(0, selectedHistoryIdx - 10);
-                if (kDown & (HidNpadButton_Right | HidNpadButton_StickLRight)) selectedHistoryIdx = std::min((int)pathHistory.size() - 1, selectedHistoryIdx + 10);
+                if (kDown & (HidNpadButton_Left | HidNpadButton_StickLLeft)) selectedHistoryIdx = std::max(0, selectedHistoryIdx - 9);
+                if (kDown & (HidNpadButton_Right | HidNpadButton_StickLRight)) selectedHistoryIdx = std::min((int)pathHistory.size() - 1, selectedHistoryIdx + 9);
 
                 if (kDown & HidNpadButton_A) {
                     currentSdPath = pathHistory[selectedHistoryIdx];
@@ -939,35 +945,42 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Render Frame
-        SDL_SetRenderDrawColor(globalRenderer, retroBg.r, retroBg.g, retroBg.b, 255);
+        // ==========================
+        // UI Render Pass 
+        // ==========================
+        SDL_SetRenderDrawColor(globalRenderer, uiBg.r, uiBg.g, uiBg.b, 255);
         SDL_RenderClear(globalRenderer);
 
-        if (bgTexture) {
-            SDL_RenderCopy(globalRenderer, bgTexture, NULL, NULL);
-        }
-
-        SDL_Rect headerRect = {0, 0, 1280, 65};
-        SDL_SetRenderDrawColor(globalRenderer, retroHeader.r, retroHeader.g, retroHeader.b, 255);
+        // Top Header Base
+        SDL_Rect headerRect = {0, 0, 1280, 75};
+        SDL_SetRenderDrawColor(globalRenderer, uiPanel.r, uiPanel.g, uiPanel.b, 255);
         SDL_RenderFillRect(globalRenderer, &headerRect);
+        
+        // Header Bottom Shadow / Border
+        SDL_SetRenderDrawColor(globalRenderer, uiBorder.r, uiBorder.g, uiBorder.b, 255);
+        SDL_RenderDrawLine(globalRenderer, 0, 75, 1280, 75);
 
-        SDL_SetRenderDrawColor(globalRenderer, retroCyan.r, retroCyan.g, retroCyan.b, 255);
-        SDL_RenderDrawLine(globalRenderer, 0, 65, 1280, 65);
-        SDL_RenderDrawLine(globalRenderer, 0, 66, 1280, 66);
+        // Header Content (Adjusted padding to compensate for larger font24)
+        renderText("ROM Downloader", 40, 15, uiText, font24);
+        renderText("SFX: " + std::string(sfxEnabled ? "ON" : "OFF"), 1140, 20, sfxEnabled ? uiSuccess : uiTextDim, font18);
 
-        renderText("ROM Downloader", 40, 14, retroWhite, font24);
-        renderText("SFX: " + std::string(sfxEnabled ? "[ON]" : "[OFF]"), 1130, 20, sfxEnabled ? retroGreen : retroYellow, font18);
+        // Bottom Footer Base (anchors hints)
+        SDL_Rect footerRect = {0, 660, 1280, 60};
+        SDL_SetRenderDrawColor(globalRenderer, uiPanel.r, uiPanel.g, uiPanel.b, 255);
+        SDL_RenderFillRect(globalRenderer, &footerRect);
+        SDL_SetRenderDrawColor(globalRenderer, uiBorder.r, uiBorder.g, uiBorder.b, 255);
+        SDL_RenderDrawLine(globalRenderer, 0, 660, 1280, 660);
 
         if (currentState == STATE_MAIN) {
             std::string tabSwitchText = selectedSection == 0 ? "Other Tab" : "Consoles Tab";
-            renderText("[A] Open   [Y] Update List   [-] Toggle SFX   [L/R] Page   [X] " + tabSwitchText + "   [+] Exit", 40, 675, retroCyan, font18);
+            renderText("[A] Open   [Y] Update   [-] SFX   [L/R] Page   [X] " + tabSwitchText + "   [ZL+ZR] Theme   [+] Exit", 40, 675, uiTextDim, font18);
 
             int cols = 4;
             int maxVisible = 12; // 3 rows of 4 (4x3 layout)
-            int startY = 85;
+            int startY = 90;
             int startX = 40;
             int cellW = 1200 / cols;
-            int cellH = 190; 
+            int cellH = 185; 
 
             if (selectedSection == 0) { // Consoles View
                 int currentPage = selectedConsoleIdx / maxVisible;
@@ -980,35 +993,32 @@ int main(int argc, char* argv[]) {
                     int xPos = startX + c * cellW;
                     int yPos = startY + r * cellH;
 
-                    SDL_Rect cell = {xPos + 5, yPos + 5, cellW - 10, cellH - 10};
+                    SDL_Rect cell = {xPos + 10, yPos + 10, cellW - 20, cellH - 20};
 
                     if ((int)i == selectedConsoleIdx) {
-                        SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 255);
-                        SDL_RenderDrawRect(globalRenderer, &cell);
-
-                        SDL_Rect inner = {cell.x + 1, cell.y + 1, cell.w - 2, cell.h - 2};
-                        SDL_RenderDrawRect(globalRenderer, &inner);
-
-                        SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
-                        SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 40);
+                        SDL_SetRenderDrawColor(globalRenderer, uiAccent.r, uiAccent.g, uiAccent.b, 255);
                         SDL_RenderFillRect(globalRenderer, &cell);
-                        SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
+                    } else {
+                        SDL_SetRenderDrawColor(globalRenderer, uiPanel.r, uiPanel.g, uiPanel.b, 255);
+                        SDL_RenderFillRect(globalRenderer, &cell);
+                        SDL_SetRenderDrawColor(globalRenderer, uiBorder.r, uiBorder.g, uiBorder.b, 255);
+                        SDL_RenderDrawRect(globalRenderer, &cell);
                     }
 
-                    int iconSize = 130;
+                    int iconSize = 110;
                     int imgX = xPos + (cellW / 2) - (iconSize / 2);
-                    int imgY = yPos + 10;
+                    int imgY = yPos + 18;
                     SDL_Rect imgRect = {imgX, imgY, iconSize, iconSize};
 
                     SDL_Texture* cover = getCoverTexture(consoleList[i].name);
                     if (cover) {
                         SDL_RenderCopy(globalRenderer, cover, NULL, &imgRect);
                     } else {
-                        SDL_SetRenderDrawColor(globalRenderer, retroHeader.r, retroHeader.g, retroHeader.b, 255);
+                        SDL_SetRenderDrawColor(globalRenderer, uiBg.r, uiBg.g, uiBg.b, 255);
                         SDL_RenderFillRect(globalRenderer, &imgRect);
                     }
 
-                    renderTextCentered(consoleList[i].name, xPos + (cellW / 2), imgY + iconSize + 5, retroWhite, fontLabel);
+                    renderTextCentered(consoleList[i].name, xPos + (cellW / 2), imgY + iconSize + 5, uiText, font18);
                 }
             } else if (selectedSection == 1) { // Other Section View
                 int currentPage = selectedOtherIdx / maxVisible;
@@ -1021,116 +1031,122 @@ int main(int argc, char* argv[]) {
                     int xPos = startX + c * cellW;
                     int yPos = startY + r * cellH;
 
-                    SDL_Rect cell = {xPos + 5, yPos + 5, cellW - 10, cellH - 10};
+                    SDL_Rect cell = {xPos + 10, yPos + 10, cellW - 20, cellH - 20};
 
                     if ((int)i == selectedOtherIdx) {
-                        SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 255);
-                        SDL_RenderDrawRect(globalRenderer, &cell);
-
-                        SDL_Rect inner = {cell.x + 1, cell.y + 1, cell.w - 2, cell.h - 2};
-                        SDL_RenderDrawRect(globalRenderer, &inner);
-
-                        SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
-                        SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 40);
+                        SDL_SetRenderDrawColor(globalRenderer, uiAccent.r, uiAccent.g, uiAccent.b, 255);
                         SDL_RenderFillRect(globalRenderer, &cell);
-                        SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
+                    } else {
+                        SDL_SetRenderDrawColor(globalRenderer, uiPanel.r, uiPanel.g, uiPanel.b, 255);
+                        SDL_RenderFillRect(globalRenderer, &cell);
+                        SDL_SetRenderDrawColor(globalRenderer, uiBorder.r, uiBorder.g, uiBorder.b, 255);
+                        SDL_RenderDrawRect(globalRenderer, &cell);
                     }
 
-                    int iconSize = 130;
+                    int iconSize = 110;
                     int imgX = xPos + (cellW / 2) - (iconSize / 2);
-                    int imgY = yPos + 10;
+                    int imgY = yPos + 18;
                     SDL_Rect imgRect = {imgX, imgY, iconSize, iconSize};
 
                     SDL_Texture* cover = getCoverTexture(otherList[i].name);
                     if (cover) {
                         SDL_RenderCopy(globalRenderer, cover, NULL, &imgRect);
                     } else {
-                        SDL_SetRenderDrawColor(globalRenderer, retroHeader.r, retroHeader.g, retroHeader.b, 255);
+                        SDL_SetRenderDrawColor(globalRenderer, uiBg.r, uiBg.g, uiBg.b, 255);
                         SDL_RenderFillRect(globalRenderer, &imgRect);
                     }
 
-                    renderTextCentered(otherList[i].name, xPos + (cellW / 2), imgY + iconSize + 5, retroWhite, fontLabel);
+                    renderTextCentered(otherList[i].name, xPos + (cellW / 2), imgY + iconSize + 5, uiText, font18);
                 }
             }
         } else if (currentState == STATE_ROMS) {
-            // Dynamic Header Logic for ROMs, Books, and Songs
             std::string labelType = "games";
             if (currentConsoleName == "eBook") labelType = "books";
             else if (currentConsoleName == "Music") labelType = "songs";
             
             std::string titleText = currentConsoleName + " (" + std::to_string(romList.size()) + " " + labelType + ")";
-            renderTextCentered(titleText, 640, 16, retroYellow, font24);
+            renderTextCentered(titleText, 640, 24, uiTextDim, font24);
             
-            renderText("[A] Confirm/DL  [X] Select  [Y] Reset Search  [+] Search  [L/R] Page  [B] Back", 40, 675, retroCyan, font18);
+            renderText("[A] Confirm/DL   [X] Select   [Y] Reset Search   [+] Search   [L/R] Page   [B] Back", 40, 675, uiTextDim, font18);
 
-            int maxVisible = 10;
+            int maxVisible = 9; // Reduced to 9 rows to give larger fonts more breathing room
             if (selectedRomIdx < romScrollOffset) romScrollOffset = selectedRomIdx;
             if (selectedRomIdx >= romScrollOffset + maxVisible) romScrollOffset = selectedRomIdx - maxVisible + 1;
 
-            int yPos = 85;
+            int yPos = 90;
             for (size_t i = romScrollOffset; i < romList.size() && i < (size_t)(romScrollOffset + maxVisible); ++i) {
-                SDL_Rect row = {40, yPos, 1200, 50};
-                if (romList[i].isSelected) {
-                    SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
-                    SDL_SetRenderDrawColor(globalRenderer, retroGreen.r, retroGreen.g, retroGreen.b, 40);
-                    SDL_RenderFillRect(globalRenderer, &row);
-                    SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
-                }
+                SDL_Rect row = {40, yPos, 1200, 56}; // Taller row
+                
+                // Active/Hover row highlight
                 if ((int)i == selectedRomIdx) {
-                    SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 255);
-                    SDL_RenderDrawRect(globalRenderer, &row);
-                    SDL_Rect inner = {row.x + 1, row.y + 1, row.w - 2, row.h - 2};
-                    SDL_RenderDrawRect(globalRenderer, &inner);
-
+                    SDL_SetRenderDrawColor(globalRenderer, uiAccent.r, uiAccent.g, uiAccent.b, 255);
+                    SDL_RenderFillRect(globalRenderer, &row);
+                } else if (i % 2 == 0) {
+                    SDL_SetRenderDrawColor(globalRenderer, uiPanel.r, uiPanel.g, uiPanel.b, 100);
                     SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
-                    SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 30);
                     SDL_RenderFillRect(globalRenderer, &row);
                     SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
                 }
 
-                std::string prefix = romList[i].isSelected ? "[*] " : "[-] ";
-                renderText(prefix + romList[i].name, 60, yPos + 8, romList[i].isSelected ? retroYellow : retroText, fontLabel);
-                yPos += 55;
+                // Graphical Checkbox - Scaled up for legibility
+                SDL_Rect checkOuter = { row.x + 15, row.y + 16, 24, 24 };
+                SDL_SetRenderDrawColor(globalRenderer, uiBorder.r, uiBorder.g, uiBorder.b, 255);
+                SDL_RenderDrawRect(globalRenderer, &checkOuter);
+
+                if (romList[i].isSelected) {
+                    SDL_Rect checkInner = { row.x + 19, row.y + 20, 16, 16 };
+                    SDL_SetRenderDrawColor(globalRenderer, uiSuccess.r, uiSuccess.g, uiSuccess.b, 255);
+                    SDL_RenderFillRect(globalRenderer, &checkInner);
+                }
+
+                SDL_Color textColor = ((int)i == selectedRomIdx) ? uiText : (romList[i].isSelected ? uiSuccess : uiText);
+                renderText(romList[i].name, row.x + 55, row.y + 10, textColor, fontLabel);
+                
+                yPos += 60; // Taller increment
             }
         } else if (currentState == STATE_PATH_PICKER) {
-            renderText("SD Path: " + currentSdPath, 40, 75, retroYellow, font18);
-            renderText("[A] Enter   [X] Confirm   [Y] History   [Left/Right] Page   [B] Back", 40, 675, retroCyan, font18);
+            renderText("SD Path: " + currentSdPath, 40, 85, uiTextDim, font18);
+            renderText("[A] Enter   [X] Confirm   [Y] History   [Left/Right] Page   [B] Back", 40, 675, uiTextDim, font18);
 
-            int maxVisible = 10;
+            int maxVisible = 9;
             if (selectedDirIdx < dirScrollOffset) dirScrollOffset = selectedDirIdx;
             if (selectedDirIdx >= dirScrollOffset + maxVisible) dirScrollOffset = selectedDirIdx - maxVisible + 1;
 
-            int yPos = 120;
+            int yPos = 130;
             for (size_t i = dirScrollOffset; i < dirList.size() && i < (size_t)(dirScrollOffset + maxVisible); ++i) {
-                SDL_Rect row = {40, yPos, 1200, 45};
+                SDL_Rect row = {40, yPos, 1200, 52};
                 if ((int)i == selectedDirIdx) {
-                    SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 255);
-                    SDL_RenderDrawRect(globalRenderer, &row);
+                    SDL_SetRenderDrawColor(globalRenderer, uiAccent.r, uiAccent.g, uiAccent.b, 255);
+                    SDL_RenderFillRect(globalRenderer, &row);
+                } else if (i % 2 == 0) {
+                    SDL_SetRenderDrawColor(globalRenderer, uiPanel.r, uiPanel.g, uiPanel.b, 100);
                     SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
-                    SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 30);
                     SDL_RenderFillRect(globalRenderer, &row);
                     SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
                 }
-                renderText(dirList[i] == ".." ? "<- [Up Directory]" : "[DIR] " + dirList[i], 60, yPos + 10, retroWhite, font18);
-                yPos += 50;
+                
+                std::string labelText = (dirList[i] == "..") ? "  ↑  [Up Directory]" : "  📁  " + dirList[i];
+                renderText(labelText, 60, yPos + 10, uiText, font18);
+                yPos += 55;
             }
         } else if (currentState == STATE_PATH_HISTORY) {
-            renderText("Select Path from History", 40, 75, retroYellow, font24);
-            renderText("[A] Select   [Left/Right] Page   [B] Cancel", 40, 675, retroCyan, font18);
+            renderText("Select Path from History", 40, 85, uiTextDim, font24);
+            renderText("[A] Select   [Left/Right] Page   [B] Cancel", 40, 675, uiTextDim, font18);
 
-            int yPos = 120;
-            for (size_t i = 0; i < pathHistory.size() && i < 10; ++i) {
-                SDL_Rect row = {40, yPos, 1200, 45};
+            int yPos = 130;
+            for (size_t i = 0; i < pathHistory.size() && i < 9; ++i) {
+                SDL_Rect row = {40, yPos, 1200, 52};
                 if ((int)i == selectedHistoryIdx) {
-                    SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 255);
-                    SDL_RenderDrawRect(globalRenderer, &row);
+                    SDL_SetRenderDrawColor(globalRenderer, uiAccent.r, uiAccent.g, uiAccent.b, 255);
+                    SDL_RenderFillRect(globalRenderer, &row);
+                } else if (i % 2 == 0) {
+                    SDL_SetRenderDrawColor(globalRenderer, uiPanel.r, uiPanel.g, uiPanel.b, 100);
                     SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_BLEND);
-                    SDL_SetRenderDrawColor(globalRenderer, retroPink.r, retroPink.g, retroPink.b, 30);
                     SDL_RenderFillRect(globalRenderer, &row);
                     SDL_SetRenderDrawBlendMode(globalRenderer, SDL_BLENDMODE_NONE);
                 }
-                renderText(pathHistory[i], 60, yPos + 10, retroWhite, font18);
-                yPos += 50;
+                renderText("  📌  " + pathHistory[i], 60, yPos + 10, uiText, font18);
+                yPos += 55;
             }
         }
 
@@ -1146,7 +1162,6 @@ int main(int argc, char* argv[]) {
     for (auto& pair : coverCache) {
         if (pair.second) SDL_DestroyTexture(pair.second);
     }
-    if (bgTexture) SDL_DestroyTexture(bgTexture);
     if (scanlineTexture) SDL_DestroyTexture(scanlineTexture);
 
     if (sfxNav) Mix_FreeChunk(sfxNav);
