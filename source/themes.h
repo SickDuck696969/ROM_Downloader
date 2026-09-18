@@ -39,20 +39,21 @@ struct Theme {
 // Backgrounds and panels now share similar luminance to ensure 
 // the universal text color never washes out on either surface.
 inline const Theme CONSOLE_THEMES[NUM_THEMES] = {
-    // 0: NES (Deep Charcoal & Soft Red)
+    // 0: NES (Classic Two-Tone Light Grey & Red)
+    // Redesigned to reflect the console's plastic shell, separating it from the Switch
     {
         "NES",
-        { 35,  35,  40,  255 }, // bg: Dark charcoal
-        { 50,  50,  55,  255 }, // panel: Mid-charcoal
-        { 65,  65,  70,  255 }, // panelHov
-        { 160, 45,  45,  255 }, // border: Muted classic red
-        { 225, 225, 230, 255 }, // text: Soft white (highly readable on dark)
-        { 140, 140, 145, 255 }, // textDim
-        { 160, 45,  45,  255 }, // accent
-        { 175, 135, 45,  255 }, // success: Gold
-        { 180, 120, 35,  255 }, // warning
-        { 160, 45,  45,  255 }, // danger
-        { 45,  110, 175, 255 }  // info
+        { 210, 210, 215, 255 }, // bg: NES top-shell cool light grey
+        { 175, 175, 180, 255 }, // panel: NES bottom-shell mid-grey
+        { 190, 190, 195, 255 }, // panelHov
+        { 195, 45,  45,  255 }, // border: NES controller A/B button red
+        { 20,  20,  25,  255 }, // text: Deep black for high contrast
+        { 100, 100, 105, 255 }, // textDim
+        { 195, 45,  45,  255 }, // accent
+        { 40,  115, 60,  255 }, // success: Classic 8-bit green
+        { 180, 110, 20,  255 }, // warning
+        { 195, 45,  45,  255 }, // danger
+        { 45,  100, 180, 255 }  // info
     },
     // 1: SNES (Dim Lavender Grey - Light Mode)
     {
@@ -146,20 +147,20 @@ inline const Theme CONSOLE_THEMES[NUM_THEMES] = {
         { 150, 40,  50,  255 }, // danger
         { 40,  95,  160, 255 }  // info
     },
-    // 7: Sega Genesis (Deep Black & Power LED Red)
+    // 7: Atari 2600 (Dark Woodgrain & Vintage Orange)
     {
-        "Sega Genesis",
-        { 20,  20,  20,  255 }, // bg: Matte black shell
-        { 38,  38,  38,  255 }, // panel: Dark grey plastic
-        { 55,  55,  55,  255 }, // panelHov
-        { 170, 30,  30,  255 }, // border: Power LED Red
-        { 230, 230, 230, 255 }, // text: Crisp white
-        { 130, 130, 130, 255 }, // textDim
-        { 170, 30,  30,  255 }, // accent
-        { 50,  140, 190, 255 }, // success: Sonic 16-bit Blue
-        { 190, 150, 35,  255 }, // warning: Golden Rings
-        { 170, 30,  30,  255 }, // danger
-        { 140, 140, 150, 255 }  // info
+        "Atari 2600",
+        { 35,  25,  20,  255 }, // bg: Very dark wood brown
+        { 55,  40,  30,  255 }, // panel: Elevated warm brown
+        { 70,  55,  40,  255 }, // panelHov
+        { 215, 115, 40,  255 }, // border: Vintage Atari Orange
+        { 235, 225, 215, 255 }, // text: Warm cream/off-white for high contrast
+        { 150, 130, 115, 255 }, // textDim
+        { 215, 115, 40,  255 }, // accent: Vintage Atari Orange
+        { 100, 160, 75,  255 }, // success: Earthy green
+        { 210, 160, 45,  255 }, // warning
+        { 190, 60,  50,  255 }, // danger
+        { 70,  140, 190, 255 }  // info
     },
     // 8: GameCube (Dark Indigo)
     {
@@ -211,17 +212,17 @@ inline const Theme CONSOLE_THEMES[NUM_THEMES] = {
     // for the white text, while muted silver handles the borders.
     {
         "PlayStation 5",
-        { 25,  27,  33,  255 }, // bg: Deep midnight core
-        { 42,  45,  52,  255 }, // panel: Elevated midnight
-        { 58,  62,  70,  255 }, // panelHov
-        { 180, 185, 195, 255 }, // border: Matte silver plate
-        { 230, 235, 245, 255 }, // text: Crisp off-white
-        { 120, 125, 135, 255 }, // textDim
-        { 40,  120, 220, 255 }, // accent: DualSense Blue
-        { 40,  135, 205, 255 }, // success
-        { 190, 140, 40,  255 }, // warning
-        { 180, 55,  55,  255 }, // danger
-        { 100, 150, 200, 255 }  // info
+        { 230, 230, 235, 255 }, // bg: Soft white/light-grey outer shell
+        { 205, 205, 215, 255 }, // panel: Visible cool grey
+        { 215, 215, 225, 255 }, // panelHov
+        { 40,  105, 195, 255 }, // border: DualSense Blue
+        { 20,  20,  25,  255 }, // text: Deep black for flawless light-mode readability
+        { 105, 105, 115, 255 }, // textDim
+        { 40,  105, 195, 255 }, // accent: DualSense Blue
+        { 30,  110, 60,  255 }, // success: Darker green for light backgrounds
+        { 160, 100, 20,  255 }, // warning: Darker golden/orange
+        { 170, 45,  45,  255 }, // danger: Strong red
+        { 35,  95,  180, 255 }  // info: Deep blue
     }
 };
 
