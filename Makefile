@@ -12,7 +12,7 @@ TOPDIR ?= $(CURDIR)
 TARGET		:= ROM_Downloader
 APP_TITLE	:= ROM Downloader
 APP_AUTHOR	:= SickDuck
-APP_VERSION	:= 1.5.0
+APP_VERSION	:= 2.0.0
 BUILD		:= build
 SOURCES		:= source
 DATA		:= data
@@ -26,7 +26,7 @@ ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
 CFLAGS	:=	-Wall -Os -ffunction-sections -fdata-sections -flto $(ARCH) $(DEFINES)
 CFLAGS	+=	$(INCLUDE) -D__SWITCH__
-CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
+CXXFLAGS	:= $(CFLAGS) -std=gnu++17 -fno-rtti -fno-exceptions
 
 ASFLAGS	:=	$(ARCH)
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs $(ARCH) -flto -Wl,--gc-sections -Wl,-s -Wl,-Map,$(notdir $*.map)                                                                                                                
