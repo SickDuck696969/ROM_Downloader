@@ -30,13 +30,6 @@ void backLibrary() {
 }
 } // namespace
 void input(u64 down, u64 held) {
-    if (((held & HidNpadButton_ZL) && (down & HidNpadButton_ZR)) ||
-        ((held & HidNpadButton_ZR) && (down & HidNpadButton_ZL))) {
-        theme((app.settings.theme + 1) % NUM_THEMES);
-        saveSettings();
-        notify("Theme: " + CONSOLE_THEMES[app.settings.theme].name);
-        return;
-    }
     if (down && app.settings.sound && app.nav)
         Mix_PlayChannel(-1, app.nav, 0);
     if (app.loading) {
@@ -114,27 +107,32 @@ void input(u64 down, u64 held) {
     if (down & (HidNpadButton_Down | HidNpadButton_StickLDown))
         ++delta;
     if (app.screen == Screen::Shelf) {
+        if (down & (HidNpadButton_L | HidNpadButton_R)) {
+            app.shelfPositions[app.shelfTab] = app.shelfCursor;
+            app.shelfTab = 1 - app.shelfTab;
+            app.shelfCursor = app.shelfPositions[app.shelfTab];
+            app.offset = 0;
+            app.focusY = 0;
+        }
+        auto systems = shelfCategories(app.categories, app.shelfTab);
         app.cursor = app.shelfCursor;
-        int step = app.compact ? 1 : 3;
-        move(delta * step, app.categories.size());
+        move(delta * (app.compact ? 1 : shelfColumns), systems.size());
         if (!app.compact) {
             if (down & (HidNpadButton_Left | HidNpadButton_StickLLeft))
-                move(-1, app.categories.size());
+                move(-1, systems.size());
             if (down & (HidNpadButton_Right | HidNpadButton_StickLRight))
-                move(1, app.categories.size());
+                move(1, systems.size());
         }
         app.shelfCursor = app.cursor;
         if (down & HidNpadButton_Y)
             startCatalog(true);
-        if ((down & HidNpadButton_A) && !app.categories.empty()) {
-            app.category = app.cursor;
+        if ((down & HidNpadButton_A) && !systems.empty()) {
+            app.category = systems[app.cursor];
             app.query.clear();
             app.favoritesOnly = false;
             go(Screen::Library);
             rebuild();
         }
-        if (down & HidNpadButton_B)
-            settings();
     } else if (app.screen == Screen::Library) {
         if (down & HidNpadButton_ZL)
             delta -= 7;
@@ -182,6 +180,8 @@ void input(u64 down, u64 held) {
             notify(all ? "Visible items deselected" : "Visible items selected");
         }
         if (down & HidNpadButton_X) {
+            if (app.selected.empty() && !app.visible.empty())
+                app.selected.insert(app.categories[app.category].items[app.visible[app.cursor]].key());
             app.jobs.clear();
             for (const auto &c : app.categories)
                 for (const auto &item : c.items)
@@ -192,8 +192,7 @@ void input(u64 down, u64 held) {
                 return;
             }
             app.libraryCursor = app.cursor;
-            go(Screen::Folder);
-            listFolders();
+            go(Screen::Review);
         }
         if (down & HidNpadButton_B) {
             go(Screen::Shelf);
@@ -229,7 +228,7 @@ void input(u64 down, u64 held) {
             go(Screen::Review);
         }
         if (down & HidNpadButton_B)
-            backLibrary();
+            go(Screen::Review);
     } else if (app.screen == Screen::History) {
         move(delta, app.settings.history.size());
         if ((down & HidNpadButton_A) && !app.settings.history.empty()) {
@@ -252,11 +251,20 @@ void input(u64 down, u64 held) {
             app.jobs.erase(app.jobs.begin() + app.cursor);
             move(0, app.jobs.size());
         }
-        if (down & HidNpadButton_B) {
+        if (down & HidNpadButton_B)
+            backLibrary();
+        if (down & HidNpadButton_R) {
             go(Screen::Folder);
             listFolders();
         }
         if ((down & HidNpadButton_A) && !app.jobs.empty()) {
+            struct stat destination{};
+            if (stat(app.path.c_str(), &destination) != 0 || !S_ISDIR(destination.st_mode)) {
+                notify("Choose a destination folder");
+                go(Screen::Folder);
+                listFolders();
+                return;
+            }
             rememberPath();
             startDownloads();
         }

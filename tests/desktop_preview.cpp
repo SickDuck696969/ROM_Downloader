@@ -60,14 +60,16 @@ int main() {
     IMG_Init(IMG_INIT_PNG);
     SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, 1280, 720, 32, SDL_PIXELFORMAT_RGBA32);
     app.renderer = SDL_CreateSoftwareRenderer(surface);
-    app.small = TTF_OpenFont("romfs/reading.ttf", 20);
-    app.body = TTF_OpenFont("romfs/reading.ttf", 24);
-    app.title = TTF_OpenFont("romfs/heading.ttf", 38);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+    app.small = TTF_OpenFont("romfs/pixel.ttf", 26);
+    app.body = TTF_OpenFont("romfs/pixel.ttf", 32);
+    app.title = TTF_OpenFont("romfs/pixel.ttf", 48);
     CHECK(app.renderer && app.small && app.body && app.title);
     app.settings.sound = false;
     app.settings.motion = false;
-    for (auto name : {"Game Boy Advance", "Nintendo DS", "Super Nintendo", "Game Boy Color", "Music", "eBook",
-                      "Arcade", "Homebrew"}) {
+    for (auto name :
+         {"Game Boy Advance", "Nintendo DS", "Super Nintendo", "Game Boy Color", "Music", "eBook", "Arcade",
+          "Homebrew", "NES", "Mega Drive", "PlayStation", "Nintendo 64", "PSP", "Saturn"}) {
         Category c;
         c.name = name;
         for (int i = 0; i < 20; ++i)
@@ -75,10 +77,32 @@ int main() {
                 {"Sample adventure " + std::to_string(i + 1) + ".zip", name, "https://example.org/file.zip"});
         app.categories.push_back(c);
     }
+    CHECK(shelfCategories(app.categories, 0).size() == 12);
+    input(HidNpadButton_Down, 0);
+    CHECK(app.shelfCursor == 4);
+    input(HidNpadButton_R, 0);
+    CHECK(app.shelfTab == 1 && app.shelfCursor == 0);
+    input(HidNpadButton_A, 0);
+    CHECK(app.screen == Screen::Library && app.categories[app.category].name == "Music");
+    input(HidNpadButton_B, 0);
+    CHECK(app.screen == Screen::Shelf && app.shelfTab == 1);
+    CHECK(shelfCategories(app.categories, 1).size() == 2);
+    input(HidNpadButton_Right, 0);
+    input(HidNpadButton_A, 0);
+    CHECK(app.screen == Screen::Library && app.categories[app.category].name == "eBook");
+    input(HidNpadButton_B, 0);
+    input(HidNpadButton_L, 0);
+    CHECK(app.shelfTab == 0 && app.shelfCursor == 4);
+    input(HidNpadButton_Up, 0);
+    CHECK(app.shelfCursor == 0);
     applyTheme(6);
     theme(6);
     render();
     CHECK(IMG_SavePNG(surface, "build/preview-full.png") == 0);
+    input(HidNpadButton_R, 0);
+    render();
+    CHECK(IMG_SavePNG(surface, "build/preview-media.png") == 0);
+    input(HidNpadButton_R, 0);
     app.compact = true;
     render();
     CHECK(IMG_SavePNG(surface, "build/preview-applet.png") == 0);
@@ -112,11 +136,17 @@ int main() {
     input(HidNpadButton_B, 0);
     CHECK(app.screen == Screen::Library && app.cursor == 7);
     int priorTheme = app.settings.theme;
-    input(HidNpadButton_ZR, HidNpadButton_ZL | HidNpadButton_ZR);
+    input(HidNpadButton_Plus, 0);
+    input(HidNpadButton_Right, 0);
+    input(HidNpadButton_B, 0);
     CHECK(app.settings.theme == (priorTheme + 1) % NUM_THEMES && app.cursor == 7);
     input(HidNpadButton_X, 0);
-    CHECK(app.screen == Screen::Folder);
+    CHECK(app.screen == Screen::Review);
     CHECK(app.jobs.size() == 1);
+    render();
+    CHECK(IMG_SavePNG(surface, "build/preview-queue.png") == 0);
+    input(HidNpadButton_R, 0);
+    CHECK(app.screen == Screen::Folder);
     // Use a host directory solely for the folder existence check.
     app.path = "./";
     input(HidNpadButton_X, 0);
@@ -149,6 +179,14 @@ int main() {
     input(HidNpadButton_B, 0);
     input(HidNpadButton_A, 0);
     CHECK(cancelWork && !pauseWork);
+    go(Screen::Library);
+    app.selected.clear();
+    rebuild();
+    input(HidNpadButton_X, 0);
+    CHECK(app.screen == Screen::Review && app.jobs.size() == 1 && app.selected.size() == 1);
+    input(HidNpadButton_B, 0);
+    CHECK(app.screen == Screen::Library);
+    go(Screen::Transfer);
     app.progress = {"Sample adventure 1.zip",
                     "Receiving data",
                     37 * 1024 * 1024,

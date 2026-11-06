@@ -14,6 +14,9 @@ struct Category {
     std::string name;
     std::vector<Item> items;
 };
+std::vector<int> shelfCategories(const std::vector<Category> &categories, int tab);
+constexpr int shelfColumns = 4, shelfPageSize = 12;
+constexpr const char *shelfTabs[] = {"Consoles", "Media"};
 std::string lower(std::string value);
 bool safeName(const std::string &value);
 bool archivePath(const std::string &value, std::string &normalized);

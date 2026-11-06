@@ -61,19 +61,10 @@ void heading(const std::string &s, const std::string &detail) {
     text(s, 48, 100, 1180, uiText, app.title);
     caption(detail, 50, 156);
 }
-void cartridge(int x, int y, int w, int h, int n, bool selected) {
-    rect(x + 5, y + 5, w, h, uiBorder);
-    rect(x, y, w, h, selected ? uiPanelHov : uiPanel);
-    rect(x + 12, y + 12, w - 24, 8, uiAccent);
-    rect(x + 20, y + 32, w - 40, h - 69, uiBg);
-    for (int i = 0; i < 7; ++i)
-        rect(x + 25 + i * 7, y + h - 25, 3, 14, uiBorder);
-    text(std::to_string(n + 1), x + w - 65, y + h - 32, 48, uiTextDim, app.body);
-}
 void cover(const std::string &name, int x, int y, int w, int h) {
     auto it = covers.find(name);
     if (it == covers.end()) {
-        if (covers.size() >= 9) {
+        if (covers.size() >= shelfPageSize * 2) {
             for (auto &c : covers)
                 if (c.second)
                     SDL_DestroyTexture(c.second);
@@ -93,12 +84,19 @@ void cover(const std::string &name, int x, int y, int w, int h) {
             return;
         }
     }
-    // A procedural cartridge label gives uncached collections their own identity.
-    for (int i = 0; i < 5; ++i) {
-        int bw = 15 + ((name.size() * 13 + i * 17) % 55);
-        rect(x + 14 + i * (w - 28) / 5, y + h / 2 - bw / 2, 12, bw, uiAccent);
-    }
-    text(name, x + 12, y + h - 35, w - 24, uiText, app.small);
+    const char *cart[] = {"01111110", "11000011", "11011011", "11011011",
+                          "11000011", "11111111", "11011011", "01111110"};
+    const char *handheld[] = {"01111110", "11000011", "11000011", "11000011",
+                              "11111111", "10110101", "10011111", "01111110"};
+    auto key = lower(name);
+    bool portable = key.find("boy") != std::string::npos || key.find("ds") != std::string::npos ||
+                    key.find("psp") != std::string::npos;
+    int pixel = std::max(1, std::min(w, h) / 8);
+    int ox = x + (w - pixel * 8) / 2, oy = y + (h - pixel * 8) / 2;
+    for (int row = 0; row < 8; ++row)
+        for (int col = 0; col < 8; ++col)
+            if ((portable ? handheld : cart)[row][col] == '1')
+                rect(ox + col * pixel, oy + row * pixel, pixel, pixel, uiAccent);
 }
 void empty(const std::string &title, const std::string &detail) {
     rect(48, 230, 1184, 270, uiPanel);
@@ -118,7 +116,7 @@ void row(int i, int start, const std::string &title, const std::string &detail, 
     bool selected = i == app.cursor;
     rect(48, y, width, 53, selected ? uiPanelHov : uiPanel);
     if (selected) {
-        int fy = app.settings.motion ? (int)app.focusY : y;
+        int fy = y;
         rect(48, fy, 5, 53, uiAccent);
     }
     text(marker, 64, y + 13, 58, selected ? uiAccent : uiTextDim, app.small);
@@ -162,54 +160,66 @@ int startFor(int count) {
     return app.offset;
 }
 void shelf() {
-    heading("YOUR CARTRIDGE SHELF", app.compact
-                                        ? "Pocket view  /  compact collections, full download controls"
-                                        : "Choose a collection. Build a queue. Make it yours.");
-    if (app.categories.empty()) {
-        empty("A shelf waiting to be filled", "Y refresh catalog  /  + studio settings");
+    auto systems = shelfCategories(app.categories, app.shelfTab);
+    for (int tab = 0; tab < 2; ++tab) {
+        int x = 48 + tab * 280;
+        bool active = tab == app.shelfTab;
+        rect(x, 104, 264, 54, active ? uiPanelHov : uiPanel);
+        if (active)
+            rect(x, 154, 264, 4, uiAccent);
+        text(shelfTabs[tab], x + 18, 114, 228, active ? uiAccent : uiText, app.body);
+    }
+    caption(std::to_string(systems.size()) + (app.shelfTab == 0 ? " systems" : " collections"), 50, 169, 500);
+    if (systems.empty()) {
+        empty(app.categories.empty() ? "No catalog" : "No collections in this tab",
+              "L/R Change tab    Y Refresh");
+        footer("L/R Tabs    Y Refresh    + Settings");
         return;
     }
+    app.shelfCursor = std::clamp(app.shelfCursor, 0, (int)systems.size() - 1);
+    app.cursor = app.shelfCursor;
     if (app.compact) {
-        app.cursor = app.shelfCursor;
-        int start = startFor(app.categories.size());
-        for (int i = start; i < std::min(start + 7, (int)app.categories.size()); ++i)
-            row(i, start, app.categories[i].name, std::to_string(app.categories[i].items.size()) + " files",
-                std::to_string(i + 1));
-        scroll(app.categories.size(), 7, start);
-    } else {
-        int selected = std::clamp(app.shelfCursor, 0, (int)app.categories.size() - 1);
-        const auto &c = app.categories[selected];
-        rect(48, 215, 326, 408, uiPanel);
-        caption("NOW BROWSING", 70, 238, 280);
-        cartridge(83, 282, 250, 198, selected, true);
-        cover(c.name, 108, 318, 200, 112);
-        text(c.name, 70, 510, 286, uiText, app.body);
-        caption(std::to_string(c.items.size()) + " files in collection", 70, 548, 280);
-        pill("A  EXPLORE", 70, 582, 160);
-        int start = selected / 6 * 6;
-        for (int i = start; i < std::min(start + 6, (int)app.categories.size()); ++i) {
-            int local = i - start, x = 414 + (local % 3) * 276, y = 218 + (local / 3) * 210;
-            bool focus = i == selected;
-            float pulse = app.settings.motion ? (std::sin(SDL_GetTicks64() / 230.0) + 1) * 1.5f : 0;
-            int lift = focus ? (int)(5 + pulse) : 0;
-            cartridge(x, y - lift, 250, 180, i, focus);
-            twoLines(app.categories[i].name, x + 28, y + 40 - lift, 196);
-            caption(std::to_string(app.categories[i].items.size()) + " files", x + 28, y + 105 - lift, 196);
-            if (focus)
-                rect(x, y + 183, 250, 3, uiAccent);
+        int start = startFor(systems.size());
+        for (int i = start; i < std::min(start + 7, (int)systems.size()); ++i) {
+            const auto &c = app.categories[systems[i]];
+            row(i, start, c.name, std::to_string(c.items.size()) + " files", std::to_string(i + 1));
         }
-        caption(std::to_string(selected + 1) + " / " + std::to_string(app.categories.size()) + " collections",
-                420, 625, 750);
+        scroll(systems.size(), 7, start);
+    } else {
+        int selected = app.shelfCursor, start = selected / shelfPageSize * shelfPageSize;
+        for (int i = start; i < std::min(start + shelfPageSize, (int)systems.size()); ++i) {
+            const auto &c = app.categories[systems[i]];
+            int local = i - start, x = 48 + local % shelfColumns * 300, y = 204 + local / shelfColumns * 144;
+            bool focus = i == selected;
+            rect(x + 4, y + 4, 284, 136, uiBorder);
+            rect(x, y, 284, 136, focus ? uiPanelHov : uiPanel);
+            if (focus) {
+                rect(x, y, 284, 4, uiAccent);
+                rect(x, y + 132, 284, 4, uiAccent);
+                rect(x, y, 4, 136, uiAccent);
+                rect(x + 280, y, 4, 136, uiAccent);
+            }
+            cover(c.name, x + 18, y + 8, 248, 120);
+            for (int row = 0; row < 46; ++row)
+                rect(x + 8, y + 82 + row, 268, 1, {0, 0, 0, (Uint8)(90 + row * 3)});
+            text(c.name, x + 18, y + 98, 248, {255, 255, 255, 255}, app.body);
+            auto badge = uiPanel;
+            badge.a = 235;
+            rect(x + 8, y + 8, 100, 27, badge);
+            caption(std::to_string(c.items.size()) + " files", x + 14, y + 8, 90);
+        }
+        caption("Page " + std::to_string(start / shelfPageSize + 1) + " / " +
+                    std::to_string(((int)systems.size() + shelfPageSize - 1) / shelfPageSize),
+                1000, 169, 232);
     }
-    footer("A  Open collection     Y  Refresh catalog     +  Studio settings",
-           "ZL + ZR  Change theme anywhere");
+    footer("A Open    L/R Tabs    Y Refresh    + Settings", "D-pad Move");
 }
 void library() {
     if (app.categories.empty())
         return;
     const auto &c = app.categories[app.category];
-    heading(c.name, app.query.empty() ? "Find your next file. Selections stay with you across collections."
-                                      : "Search: " + app.query);
+    heading(c.name,
+            app.query.empty() ? std::to_string(app.visible.size()) + " files" : "Search: " + app.query);
     pill(std::to_string(app.selected.size()) + " IN QUEUE", 48, 184, 180);
     pill(app.favoritesOnly ? "FAVORITES" : "ALL FILES", 240, 184, 170);
     pill(app.descending ? "Z - A" : "A - Z", 422, 184, 100);
@@ -226,23 +236,21 @@ void library() {
     else if (!app.compact) {
         const auto &item = c.items[app.visible[app.cursor]];
         rect(908, 218, 308, 395, uiPanel);
-        caption("FILE INSPECTOR", 930, 241, 262);
-        cartridge(949, 290, 220, 140, app.visible[app.cursor], true);
-        auto dot = item.name.find_last_of('.');
-        text(dot == std::string::npos ? "FILE" : item.name.substr(dot + 1), 984, 336, 150, uiAccent,
-             app.title);
-        text(item.name, 930, 456, 262, uiText, app.body);
-        caption(app.settings.favorites.count(item.key()) ? "In your favorites" : "R-stick click to favorite",
-                930, 500, 262);
-        caption("X  Choose destination", 930, 551, 262);
-        caption(std::to_string(app.visible.size()) + " matching files", 930, 582, 262);
+        caption("QUEUE", 930, 240, 262);
+        text(std::to_string(app.selected.size()) + " FILES", 930, 274, 262, uiAccent, app.title);
+        line(930, 338, 262, uiBorder);
+        caption("DESTINATION", 930, 358, 262);
+        twoLines(app.path, 930, 390, 262);
+        caption("FOCUSED FILE", 930, 468, 262);
+        twoLines(item.name, 930, 500, 262);
+        caption("X Review download", 930, 576, 262);
     }
     scroll(app.visible.size(), 7, start);
-    footer("A  Select     X  Queue     Y  Search     L  Favorites     R  Sort     B  Shelf",
-           "-  Select visible / none     R-stick  Favorite     ZL / ZR  Page     +  Settings");
+    footer("A Select    X Download    Y Search    B Systems    + Settings",
+           "L Favorites    R Sort    R3 Favorite    - Select all    ZL/ZR Page");
 }
 void folder() {
-    heading("CHOOSE A DESTINATION", app.path);
+    heading("DESTINATION", app.path);
     pill(bytes(freeBytes()) + " free on SD", 48, 184, 300);
     int start = startFor(app.folders.size());
     for (int i = start; i < std::min(start + 7, (int)app.folders.size()); ++i)
@@ -250,10 +258,10 @@ void folder() {
     if (app.folders.empty())
         empty("This folder is empty", "X chooses this location. R creates a new folder.");
     scroll(app.folders.size(), 7, start);
-    footer("A  Open     L  Parent     R  New folder     Y  Recent paths     X  Review queue     B  Files");
+    footer("A  Open     L  Parent     R  New folder     Y  Recent paths     X  Use folder     B  Back");
 }
 void history() {
-    heading("RECENT DESTINATIONS", "Your last 12 locations, most recent first");
+    heading("RECENT FOLDERS", "");
     int start = startFor(app.settings.history.size());
     for (int i = start; i < std::min(start + 7, (int)app.settings.history.size()); ++i)
         row(i, start, app.settings.history[i], "Saved destination", std::to_string(i + 1));
@@ -277,7 +285,7 @@ std::string status(Status s) {
     }
 }
 void queue(bool results) {
-    heading(results ? "YOUR QUEUE, COMPLETED" : "ONE LAST LOOK", app.path);
+    heading(results ? "RESULTS" : "DOWNLOAD QUEUE", app.path);
     int start = startFor(app.jobs.size());
     int saved = 0, failed = 0;
     for (const auto &j : app.jobs) {
@@ -289,22 +297,21 @@ void queue(bool results) {
     caption(results ? std::to_string(saved) + " saved / existing  |  " + std::to_string(failed) +
                           " failed / cancelled"
                     : std::to_string(app.jobs.size()) +
-                          " files  |  Existing files are skipped  |  ZIP extraction: " +
-                          app.settings.extractionLabel(),
+                          " files  |  Skip existing  |  ZIP: " + app.settings.extractionLabel(),
             50, 190);
     for (int i = start; i < std::min(start + 7, (int)app.jobs.size()); ++i)
         row(i, start, app.jobs[i].item.name, results ? app.jobs[i].detail : app.jobs[i].item.category,
             results ? status(app.jobs[i].status) : std::to_string(i + 1));
     scroll(app.jobs.size(), 7, start);
     footer(results ? "A / B  Return to collection     X  Retry failed downloads"
-                   : "A  Start queue     X  Remove item     Y  Extraction mode     B  Destination");
+                   : "A Download    R Folder    X Remove    Y Extraction    B Files");
 }
 void transfer() {
     auto &p = app.progress;
     bool paused = pauseWork;
-    heading(p.extracting  ? "UNPACKING YOUR FILES"
-            : app.loading ? "SYNCING COLLECTIONS"
-                          : "ON ITS WAY",
+    heading(p.extracting  ? "EXTRACTING"
+            : app.loading ? "UPDATING CATALOG"
+                          : "DOWNLOADING",
             p.title.empty() ? "Preparing background task" : p.title);
     float fraction = p.total ? std::clamp((float)p.now / p.total, 0.f, 1.f) : 0;
     static std::string lastOperation;
@@ -317,10 +324,12 @@ void transfer() {
     eased = app.settings.motion ? eased + (fraction - eased) * .18f : fraction;
     int x = app.compact ? 48 : 420, w = app.compact ? 1184 : 812;
     if (!app.compact) {
-        cartridge(73, 255, 288, 270, std::max(0, p.index - 1), true);
-        text(paused ? "II" : p.extracting ? "ZIP" : "DL", 130, 345, 190, uiAccent, app.title);
-        caption(app.loading ? "CATALOG" : std::to_string(p.index) + " / " + std::to_string(p.count), 100, 550,
-                250);
+        rect(48, 235, 340, 330, uiPanel);
+        caption("FILE", 76, 265, 280);
+        text(app.loading ? "CATALOG" : std::to_string(p.index) + " / " + std::to_string(p.count), 76, 310,
+             280, uiAccent, app.title);
+        caption("DESTINATION", 76, 410, 280);
+        twoLines(app.path, 76, 454, 280);
     }
     rect(x, 235, w, 330, uiPanel);
     text(paused    ? "PAUSED"
@@ -329,12 +338,10 @@ void transfer() {
          x + 28, 265, w - 56, uiText, app.title);
     rect(x + 28, 343, w - 56, 18, uiBg);
     if (p.total) {
-        int fill = (int)((w - 56) * eased);
-        rect(x + 28, 343, fill, 18, uiAccent);
-        if (app.settings.motion && !paused && fill > 32) {
-            int sweep = (SDL_GetTicks64() / 9) % (fill - 28);
-            rect(x + 28 + sweep, 343, 28, 18, mix(uiAccent, uiText, .25f));
-        }
+        int segments = 32, step = (w - 56) / segments;
+        int filled = (int)(segments * eased + .5f);
+        for (int i = 0; i < segments; ++i)
+            rect(x + 28 + i * step, 343, step - 4, 18, i < filled ? uiAccent : uiPanelHov);
     } else {
         int range = w - 180;
         int shift = app.settings.motion ? (int)((SDL_GetTicks64() / 5) % std::max(1, range)) : 0;
@@ -353,11 +360,6 @@ void transfer() {
                 w - 56);
     }
     caption(p.detail, x + 28, 477, w - 56);
-    caption(p.extracting
-                ? (app.settings.deleteOriginal ? "Delete ZIP only after full success; keep on errors or skips"
-                                               : "Original archive stays on your SD card")
-                : "Files are saved only after a successful transfer",
-            x + 28, 521, w - 56);
     if (app.screen == Screen::Cancel) {
         rect(180, 275, 920, 220, uiBg);
         rect(180, 275, 6, 220, uiDanger);
@@ -365,26 +367,23 @@ void transfer() {
         caption("Finished files stay saved. The active partial file is removed.", 220, 371, 840);
         text("A  Stop queue       B  Continue", 220, 427, 840, uiText, app.body);
     }
-    footer(app.loading ? "B  Cancel update     ZL + ZR  Change theme"
-                       : "A  Pause / resume     B  Stop queue     ZL + ZR  Change theme");
+    footer(app.loading ? "B Cancel update" : "A Pause / resume    B Cancel");
 }
 void settings() {
-    heading("MAKE IT YOURS", "Live palettes, comfortable motion, and your preferred workflow");
+    heading("SETTINGS", "");
     const std::string titles[] = {"Palette",         "Motion",
                                   "Sound effects",   "Extract ZIP after download",
                                   "Refresh catalog", "Exit to Homebrew Menu"};
     const std::string details[] = {CONSOLE_THEMES[app.settings.theme].name,
-                                   app.settings.motion ? "Smooth movement + animated accents"
-                                                       : "Reduced motion",
+                                   app.settings.motion ? "On" : "Reduced motion",
                                    app.settings.sound ? "On" : "Off",
                                    app.settings.extractionLabel() + " / Arcade excluded",
-                                   "Refresh online; cached catalog remains available offline",
-                                   "Finish your session"};
+                                   "Download latest catalog",
+                                   "Exit"};
     int start = startFor(6);
     for (int i = 0; i < 6; ++i)
         row(i, start, titles[i], details[i], std::to_string(i + 1));
-    footer("A  Change / activate     Left / Right  Change palette     B  Back",
-           "ZL + ZR  Cycle palettes from any screen");
+    footer("A Change    Left/Right Adjust    B Back");
 }
 } // namespace
 void theme(int index) {
@@ -447,7 +446,7 @@ void text(const std::string &value, int x, int y, int width, SDL_Color color, TT
             SDL_DestroyTexture(oldest->second.texture);
             labels.erase(oldest);
         }
-        auto *surf = TTF_RenderUTF8_Blended(font, s.c_str(), {255, 255, 255, 255});
+        auto *surf = TTF_RenderUTF8_Solid(font, s.c_str(), {255, 255, 255, 255});
         if (!surf)
             return;
         auto *texture = SDL_CreateTextureFromSurface(app.renderer, surf);
@@ -467,11 +466,10 @@ void render() {
     animateTheme();
     SDL_SetRenderDrawBlendMode(app.renderer, SDL_BLENDMODE_BLEND);
     rect(0, 0, 1280, 720, uiBg);
-    // Offset printing marks and a segmented masthead define the studio identity.
-    rect(0, 0, 1280, 7, uiAccent);
-    text("ROM / STUDIO", 48, 29, 400, uiText, app.body);
-    caption("02", 424, 34, 70);
-    pill(app.compact ? "APPLET / POCKET" : "FULL RAM / SHELF", 744, 28, 236);
+    // Pixel-size accents stay aligned to whole screen pixels.
+    rect(0, 0, 1280, 8, uiAccent);
+    text("ROM DOWNLOADER", 48, 24, 620, uiText, app.body);
+    pill(app.compact ? "APPLET" : "FULL RAM", 744, 28, 236);
     text(CONSOLE_THEMES[app.settings.theme].name, 1000, 34, 232, uiTextDim, app.small);
     line(48, 78, 1184, uiBorder);
     reveal = app.settings.motion ? std::min(1.f, (SDL_GetTicks64() - app.transition) / 180.f) : 1;

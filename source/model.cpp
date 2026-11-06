@@ -4,6 +4,20 @@
 #include <algorithm>
 #include <cstdio>
 namespace rd {
+std::vector<int> shelfCategories(const std::vector<Category> &categories, int tab) {
+    std::vector<int> result;
+    for (int i = 0; i < (int)categories.size(); ++i) {
+        auto name = lower(categories[i].name);
+        int group =
+            (name == "music" || name == "ebook" || name == "ebooks" || name == "e-book" || name == "e-books")
+                ? 1
+                : 0;
+        if (group == tab)
+            result.push_back(i);
+    }
+    return result;
+}
+
 std::string lower(std::string v) {
     for (auto &c : v)
         if (c >= 'A' && c <= 'Z')

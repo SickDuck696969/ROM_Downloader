@@ -11,11 +11,12 @@ int main(int, char **) {
     TTF_Init();
     IMG_Init(IMG_INIT_PNG);
     Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048);
-    auto *window = SDL_CreateWindow("ROM Studio", 0, 0, 1280, 720, 0);
+    auto *window = SDL_CreateWindow("ROM Downloader", 0, 0, 1280, 720, 0);
     app.renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    app.small = TTF_OpenFont("romfs:/reading.ttf", 20);
-    app.body = TTF_OpenFont("romfs:/reading.ttf", 24);
-    app.title = TTF_OpenFont("romfs:/heading.ttf", 38);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+    app.small = TTF_OpenFont("romfs:/pixel.ttf", 26);
+    app.body = TTF_OpenFont("romfs:/pixel.ttf", 32);
+    app.title = TTF_OpenFont("romfs:/pixel.ttf", 48);
     if (!app.renderer || !app.small || !app.body || !app.title)
         return 1;
     app.nav = Mix_LoadWAV("romfs:/nav.wav");

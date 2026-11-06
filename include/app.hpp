@@ -54,6 +54,7 @@ struct App {
     std::set<std::string> selected;
     std::vector<Job> jobs;
     std::vector<std::string> folders;
+    int shelfTab = 0, shelfPositions[2]{};
     int category = 0, cursor = 0, offset = 0, shelfCursor = 0, libraryCursor = 0;
     std::string query, path = "sdmc:/", toast;
     uint64_t toastUntil = 0, transition = 0;

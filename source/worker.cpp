@@ -415,6 +415,8 @@ void pollWorker() {
         if (catalogOkay) {
             app.categories = std::move(catalog);
             app.category = app.shelfCursor = 0;
+            for (auto &position : app.shelfPositions)
+                position = 0;
             std::set<std::string> retained;
             for (const auto &c : app.categories)
                 for (const auto &item : c.items)
